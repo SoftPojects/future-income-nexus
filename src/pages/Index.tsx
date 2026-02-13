@@ -1,16 +1,33 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, Wifi } from "lucide-react";
 import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
 import StatCards from "@/components/StatCards";
 import ActionButtons from "@/components/ActionButtons";
+import FeedCryptoModal from "@/components/FeedCryptoModal";
+import ShareHustleModal from "@/components/ShareHustleModal";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 
 const Index = () => {
   const agent = useAgentStateMachine();
+  const [feedOpen, setFeedOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
-  const stateColor =
-    agent.state === "hustling" ? "text-neon-green" : agent.state === "resting" ? "text-yellow-400" : "text-muted-foreground";
+  const isDepleted = agent.state === "depleted";
+
+  const stateColor = isDepleted
+    ? "text-destructive"
+    : agent.state === "hustling"
+    ? "text-neon-green"
+    : agent.state === "resting"
+    ? "text-yellow-400"
+    : "text-muted-foreground";
+
+  const handleFueled = () => {
+    agent.setEnergy((prev) => Math.min(100, prev + 50));
+    agent.setState("hustling");
+  };
 
   return (
     <div className="min-h-screen bg-background grid-bg relative overflow-hidden">
@@ -18,7 +35,9 @@ const Index = () => {
       <div
         className="fixed top-[-200px] left-[-200px] w-[500px] h-[500px] rounded-full opacity-20 pointer-events-none"
         style={{
-          background: "radial-gradient(circle, hsl(180 100% 50% / 0.3), transparent 70%)",
+          background: isDepleted
+            ? "radial-gradient(circle, hsl(0 84% 60% / 0.2), transparent 70%)"
+            : "radial-gradient(circle, hsl(180 100% 50% / 0.3), transparent 70%)",
         }}
       />
       <div
@@ -42,9 +61,9 @@ const Index = () => {
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <Wifi className="w-4 h-4 text-neon-green" />
-            <span className="text-[10px] font-mono text-neon-green text-glow-green tracking-wider">
-              CONNECTED
+            <Wifi className={`w-4 h-4 ${isDepleted ? "text-destructive" : "text-neon-green"}`} />
+            <span className={`text-[10px] font-mono tracking-wider ${isDepleted ? "text-destructive" : "text-neon-green text-glow-green"}`}>
+              {isDepleted ? "OFFLINE" : "CONNECTED"}
             </span>
           </div>
           <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${stateColor}`}>
@@ -77,7 +96,12 @@ const Index = () => {
           strategy={agent.strategy}
         />
 
-        <ActionButtons agentState={agent.state} onStateChange={agent.setState} />
+        <ActionButtons
+          agentState={agent.state}
+          onStateChange={agent.setState}
+          onFeedCrypto={() => setFeedOpen(true)}
+          onShareHustle={() => setShareOpen(true)}
+        />
 
         <motion.div
           className="glass rounded-lg px-4 py-3 flex items-center justify-between text-[10px] font-mono text-muted-foreground"
@@ -90,6 +114,17 @@ const Index = () => {
           <span className="text-neon-cyan">LATENCY: 12ms</span>
         </motion.div>
       </main>
+
+      {/* Modals */}
+      <FeedCryptoModal open={feedOpen} onClose={() => setFeedOpen(false)} onFueled={handleFueled} />
+      <ShareHustleModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        totalHustled={agent.totalHustled}
+        energy={agent.energy}
+        agentState={agent.state}
+        strategy={agent.strategy.name}
+      />
     </div>
   );
 };
