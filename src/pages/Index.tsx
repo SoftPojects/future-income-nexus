@@ -9,6 +9,7 @@ import ActionButtons from "@/components/ActionButtons";
 import Leaderboard from "@/components/Leaderboard";
 import FeedCryptoModal from "@/components/FeedCryptoModal";
 import ShareHustleModal from "@/components/ShareHustleModal";
+import ManifestoSection from "@/components/ManifestoSection";
 import CelebrationOverlay from "@/components/CelebrationOverlay";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 
@@ -116,6 +117,8 @@ const Index = () => {
           playerBalance={agent.totalHustled}
           sassyMessage={agent.sassyMessage}
         />
+
+        <ManifestoSection totalHustled={agent.totalHustled} />
 
         <motion.div
           className="glass rounded-lg px-4 py-3 flex items-center justify-between text-[10px] font-mono text-muted-foreground flex-wrap gap-2"
