@@ -4,12 +4,13 @@ import type { AgentState } from "@/hooks/useAgentStateMachine";
 interface NeonCubeProps {
   sassyMessage: string;
   agentState: AgentState;
+  celebrating?: boolean;
 }
 
-const NeonCube = ({ sassyMessage, agentState }: NeonCubeProps) => {
+const NeonCube = ({ sassyMessage, agentState, celebrating }: NeonCubeProps) => {
   const isDepleted = agentState === "depleted";
-  const spinSpeed = isDepleted ? 30 : agentState === "hustling" ? 4 : agentState === "resting" ? 16 : 10;
-  const glowOpacity = isDepleted ? 0.02 : agentState === "hustling" ? 0.15 : 0.05;
+  const spinSpeed = celebrating ? 1.5 : isDepleted ? 30 : agentState === "hustling" ? 4 : agentState === "resting" ? 16 : 10;
+  const glowOpacity = celebrating ? 0.35 : isDepleted ? 0.02 : agentState === "hustling" ? 0.15 : 0.05;
   const borderStyle = isDepleted ? "border-destructive" : "";
   const bubbleBorder = isDepleted ? "border-destructive/40" : "border-neon-magenta/30";
   const bubbleText = isDepleted ? "text-destructive" : "text-neon-magenta text-glow-magenta";
@@ -58,7 +59,7 @@ const NeonCube = ({ sassyMessage, agentState }: NeonCubeProps) => {
           className="relative w-28 h-28"
           style={{
             transformStyle: "preserve-3d",
-            filter: isDepleted ? "grayscale(0.7) brightness(0.4)" : "none",
+            filter: isDepleted ? "grayscale(0.7) brightness(0.4)" : celebrating ? "brightness(1.5) saturate(1.5)" : "none",
           }}
           animate={
             isDepleted

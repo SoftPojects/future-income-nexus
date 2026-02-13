@@ -9,6 +9,7 @@ import ActionButtons from "@/components/ActionButtons";
 import Leaderboard from "@/components/Leaderboard";
 import FeedCryptoModal from "@/components/FeedCryptoModal";
 import ShareHustleModal from "@/components/ShareHustleModal";
+import CelebrationOverlay from "@/components/CelebrationOverlay";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 
 const Index = () => {
@@ -26,9 +27,14 @@ const Index = () => {
     ? "text-yellow-400"
     : "text-muted-foreground";
 
-  const handleFueled = () => {
+  const handleFueled = (walletAddress: string) => {
     agent.setEnergy((prev) => Math.min(100, prev + 50));
     agent.setState("hustling");
+    agent.setCelebrating(true);
+    agent.setLastBenefactor(walletAddress);
+    agent.addLog(
+      `[SUCCESS]: ⚡ POWER OVERWHELMING! Thanks to the human who just fueled my brain with 0.01 SOL. I can see the matrix now... and it looks like profit.`
+    );
   };
 
   return (
@@ -88,7 +94,7 @@ const Index = () => {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.3 }}
           >
-            <NeonCube sassyMessage={agent.sassyMessage} agentState={agent.state} />
+            <NeonCube sassyMessage={agent.sassyMessage} agentState={agent.state} celebrating={agent.celebrating} />
           </motion.div>
         </div>
 
@@ -112,16 +118,24 @@ const Index = () => {
         />
 
         <motion.div
-          className="glass rounded-lg px-4 py-3 flex items-center justify-between text-[10px] font-mono text-muted-foreground"
+          className="glass rounded-lg px-4 py-3 flex items-center justify-between text-[10px] font-mono text-muted-foreground flex-wrap gap-2"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
         >
           <span>SYSTEM UPTIME: 47h 23m 11s</span>
+          {agent.lastBenefactor && (
+            <span className="text-neon-magenta">
+              LAST BENEFACTOR: {agent.lastBenefactor.slice(0, 4)}...{agent.lastBenefactor.slice(-4)}
+            </span>
+          )}
           <span>TASKS COMPLETED: 1,247</span>
           <span className="text-neon-cyan">LATENCY: 12ms</span>
         </motion.div>
       </main>
+
+      {/* Celebration Overlay */}
+      <CelebrationOverlay active={agent.celebrating} onComplete={() => agent.setCelebrating(false)} />
 
       {/* Modals */}
       <FeedCryptoModal open={feedOpen} onClose={() => setFeedOpen(false)} onFueled={handleFueled} />
