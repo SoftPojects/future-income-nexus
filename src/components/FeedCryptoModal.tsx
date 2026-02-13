@@ -13,7 +13,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 
 const RECIPIENT_WALLET = "76LAb1pzLKtr7ao6WP9Eupu5ngJ9oJPetrHbQX3YWc6X";
-const DEFAULT_SOL_AMOUNT = 0.1;
+const DEFAULT_SOL_AMOUNT = 0.01;
 
 interface FeedCryptoModalProps {
   open: boolean;
@@ -254,7 +254,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
                       Amount (SOL)
                     </p>
                     <div className="flex gap-2 mb-3">
-                      {[0.05, 0.1, 0.25, 0.5].map((amt) => (
+                      {[0.01, 0.05, 0.1, 0.25].map((amt) => (
                         <motion.button
                           key={amt}
                           className={`flex-1 text-xs font-mono py-2 rounded-md border cursor-pointer transition-colors ${
