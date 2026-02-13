@@ -45,6 +45,8 @@ const Terminal = ({ logs, agentState }: TerminalProps) => {
     if (line.startsWith("[SUCCESS]")) return "text-neon-green text-glow-green";
     if (line.startsWith("[ALERT]")) return "text-neon-magenta text-glow-magenta";
     if (line.startsWith("[ERROR]")) return "text-destructive";
+    if (line.startsWith("[DATA]")) return "text-yellow-400";
+    if (line.startsWith("[TIP]")) return "text-neon-green text-glow-green font-bold";
     return "text-neon-cyan";
   };
 
