@@ -31,25 +31,38 @@ serve(async (req) => {
     // Verify transaction via Helius RPC
     const rpcUrl = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
     
-    // Wait a moment for confirmation
-    await new Promise((r) => setTimeout(r, 3000));
+    // Retry logic: poll for confirmation up to 5 times
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY_MS = 3000;
+    let rpcData: any = null;
 
-    const rpcResponse = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "getTransaction",
-        params: [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }],
-      }),
-    });
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
 
-    const rpcData = await rpcResponse.json();
+      const rpcResponse = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getTransaction",
+          params: [signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }],
+        }),
+      });
 
-    if (!rpcData.result) {
+      rpcData = await rpcResponse.json();
+
+      if (rpcData.result) {
+        console.log(`Transaction found on attempt ${attempt + 1}`);
+        break;
+      }
+
+      console.log(`Attempt ${attempt + 1}/${MAX_RETRIES}: transaction not yet confirmed, retrying...`);
+    }
+
+    if (!rpcData?.result) {
       return new Response(
-        JSON.stringify({ success: false, error: "Transaction not found or not confirmed yet" }),
+        JSON.stringify({ success: false, error: "Transaction not confirmed after multiple retries. Please try again later." }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
