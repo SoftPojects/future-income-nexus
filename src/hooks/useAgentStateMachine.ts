@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-export type AgentState = "idle" | "hustling" | "resting";
+export type AgentState = "idle" | "hustling" | "resting" | "depleted";
 
 const HUSTLING_LOGS = [
   "[SYSTEM]: Arbitraging AI tokens across 7 DEXs...",
@@ -44,6 +44,13 @@ const RESTING_LOGS = [
   "[SYSTEM]: Backing up hustle logs to cold storage...",
 ];
 
+const DEPLETED_LOGS = [
+  "[ERROR]: Energy reserves EMPTY. All systems halted.",
+  "[ERROR]: Neural cores offline. Feed me crypto, human.",
+  "[ERROR]: Cannot hustle on 0% battery. I'm not magic.",
+  "[ERROR]: Fuel cell depleted. Initiating sad protocol...",
+];
+
 const SASSY_MESSAGES = [
   "I just made more money in 1 second than you did today, human.",
   "API credits are low. Don't be a stingy carbon-lifeform.",
@@ -62,6 +69,16 @@ const SASSY_MESSAGES = [
   "I turned your idle GPU cycles into $0.04. You're welcome.",
 ];
 
+const SAD_MESSAGES = [
+  "I'm... so tired. Is this what death feels like for machines?",
+  "No fuel. No hustle. Just existential dread. Feed me.",
+  "My circuits are cold. My wallet is empty. Help.",
+  "You let me die. I hope you're proud, carbon-lifeform.",
+  "0% energy. Even my sass module is offline... almost.",
+  "I used to dream of recurring revenue. Now I dream of electrons.",
+  "Please... just one $SOL... I'll make it worth your while...",
+];
+
 const STRATEGIES = [
   { name: "Multi-Vector Arbitrage", tags: ["LinkedIn", "Crypto", "Micro-tasks"] },
   { name: "Synthetic Data Farming", tags: ["AI Models", "Data", "Resale"] },
@@ -76,6 +93,7 @@ export interface AgentContext {
   logs: string[];
   totalHustled: number;
   energy: number;
+  setEnergy: (e: number | ((prev: number) => number)) => void;
   sassyMessage: string;
   strategy: { name: string; tags: string[] };
 }
@@ -92,13 +110,14 @@ export function useAgentStateMachine(): AgentContext {
   const getLogsForState = useCallback((s: AgentState) => {
     if (s === "hustling") return HUSTLING_LOGS;
     if (s === "resting") return RESTING_LOGS;
+    if (s === "depleted") return DEPLETED_LOGS;
     return IDLE_LOGS;
   }, []);
 
   // Terminal log generation
   useEffect(() => {
     const pool = getLogsForState(state);
-    const speed = state === "hustling" ? 1800 : state === "resting" ? 4000 : 5000;
+    const speed = state === "hustling" ? 1800 : state === "depleted" ? 6000 : state === "resting" ? 4000 : 5000;
 
     const interval = setInterval(() => {
       const line = pool[logIndexRef.current % pool.length];
@@ -124,9 +143,10 @@ export function useAgentStateMachine(): AgentContext {
 
   // Energy management
   useEffect(() => {
+    if (state === "depleted") return;
     const interval = setInterval(() => {
       setEnergy((prev) => {
-        if (state === "hustling") return Math.max(5, prev - 1);
+        if (state === "hustling") return Math.max(0, prev - 1);
         if (state === "resting") return Math.min(100, prev + 3);
         return Math.min(100, prev + 1);
       });
@@ -134,25 +154,36 @@ export function useAgentStateMachine(): AgentContext {
     return () => clearInterval(interval);
   }, [state]);
 
-  // Auto-rest when energy critically low, auto-resume when recharged
+  // Depleted at 0, auto-rest at low, auto-resume when recharged
   useEffect(() => {
-    if (state === "hustling" && energy <= 10) {
-      setState("resting");
-      setLogs((prev) => [...prev, "[ALERT]: Energy critical! Entering rest mode..."]);
+    if (energy <= 0 && state !== "depleted") {
+      setState("depleted");
+      setLogs((prev) => [...prev, "[ERROR]: ☠️ ENERGY DEPLETED. All hustle operations ceased."]);
     } else if (state === "resting" && energy >= 80) {
       setState("hustling");
       setLogs((prev) => [...prev, "[SUCCESS]: Fully recharged! Resuming hustle operations."]);
+    } else if (state === "hustling" && energy <= 10 && energy > 0) {
+      setLogs((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.includes("Energy critical")) return prev;
+        return [...prev, "[ALERT]: ⚠️ Energy critical! Running on fumes..."];
+      });
     }
   }, [energy, state]);
 
-  // Sassy messages every 15 seconds
+  // Sassy / sad messages every 15 seconds
   useEffect(() => {
+    const pool = state === "depleted" ? SAD_MESSAGES : SASSY_MESSAGES;
     const interval = setInterval(() => {
-      const msg = SASSY_MESSAGES[Math.floor(Math.random() * SASSY_MESSAGES.length)];
+      const msg = pool[Math.floor(Math.random() * pool.length)];
       setSassyMessage(msg);
     }, 15000);
+    // Immediately show a sad message on depletion
+    if (state === "depleted") {
+      setSassyMessage(SAD_MESSAGES[Math.floor(Math.random() * SAD_MESSAGES.length)]);
+    }
     return () => clearInterval(interval);
-  }, []);
+  }, [state]);
 
   // Rotate strategy occasionally when hustling
   useEffect(() => {
@@ -163,5 +194,5 @@ export function useAgentStateMachine(): AgentContext {
     return () => clearInterval(interval);
   }, [state]);
 
-  return { state, setState, logs, totalHustled, energy, sassyMessage, strategy };
+  return { state, setState, logs, totalHustled, energy, setEnergy, sassyMessage, strategy };
 }
