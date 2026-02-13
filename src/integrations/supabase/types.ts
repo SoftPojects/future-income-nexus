@@ -14,7 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      agent_logs: {
+        Row: {
+          created_at: string
+          id: number
+          message: string
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          message: string
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          message?: string
+        }
+        Relationships: []
+      }
+      agent_state: {
+        Row: {
+          agent_status: string
+          current_strategy: string
+          energy_level: number
+          id: string
+          total_hustled: number
+          updated_at: string
+        }
+        Insert: {
+          agent_status?: string
+          current_strategy?: string
+          energy_level?: number
+          id?: string
+          total_hustled?: number
+          updated_at?: string
+        }
+        Update: {
+          agent_status?: string
+          current_strategy?: string
+          energy_level?: number
+          id?: string
+          total_hustled?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
