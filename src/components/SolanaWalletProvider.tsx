@@ -9,7 +9,7 @@ import { SolflareWalletAdapter } from "@solana/wallet-adapter-solflare";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
 
-const SOLANA_RPC = "https://api.mainnet-beta.solana.com";
+const SOLANA_RPC = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/solana-rpc-proxy`;
 
 const SolanaWalletProvider = ({ children }: { children: React.ReactNode }) => {
   const wallets = useMemo(
