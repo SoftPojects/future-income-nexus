@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Activity, Wifi } from "lucide-react";
+import ConnectWalletButton from "@/components/ConnectWalletButton";
 import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
 import StatCards from "@/components/StatCards";
@@ -61,6 +62,7 @@ const Index = () => {
           </h1>
         </div>
         <div className="flex items-center gap-4">
+          <ConnectWalletButton />
           <div className="flex items-center gap-2">
             <Wifi className={`w-4 h-4 ${isDepleted ? "text-destructive" : "text-neon-green"}`} />
             <span className={`text-[10px] font-mono tracking-wider ${isDepleted ? "text-destructive" : "text-neon-green text-glow-green"}`}>
