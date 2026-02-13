@@ -1,19 +1,15 @@
 import { motion } from "framer-motion";
 import { DollarSign, Battery, Brain } from "lucide-react";
-import { useState, useEffect } from "react";
+import type { AgentState } from "@/hooks/useAgentStateMachine";
 
-const StatCards = () => {
-  const [totalHustled, setTotalHustled] = useState(14.27);
-  const [energy, setEnergy] = useState(73);
+interface StatCardsProps {
+  totalHustled: number;
+  energy: number;
+  agentState: AgentState;
+  strategy: { name: string; tags: string[] };
+}
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTotalHustled((prev) => +(prev + Math.random() * 0.08).toFixed(2));
-      setEnergy((prev) => Math.max(20, Math.min(100, prev + (Math.random() > 0.5 ? 1 : -1))));
-    }, 3000);
-    return () => clearInterval(interval);
-  }, []);
-
+const StatCards = ({ totalHustled, energy, agentState, strategy }: StatCardsProps) => {
   const getEnergyColor = () => {
     if (energy > 60) return "bg-neon-green";
     if (energy > 30) return "bg-yellow-400";
@@ -42,7 +38,9 @@ const StatCards = () => {
         >
           ${totalHustled.toFixed(2)}
         </motion.div>
-        <p className="text-[10px] text-muted-foreground mt-2">+$0.42 last 24h</p>
+        <p className="text-[10px] text-muted-foreground mt-2">
+          {agentState === "hustling" ? "🟢 Actively earning" : agentState === "resting" ? "💤 Paused — recharging" : "⏸ Idle — awaiting orders"}
+        </p>
       </motion.div>
 
       {/* Energy Level */}
@@ -67,7 +65,6 @@ const StatCards = () => {
         <div className="w-full h-3 rounded-full bg-muted overflow-hidden">
           <motion.div
             className={`h-full rounded-full ${getEnergyColor()}`}
-            initial={{ width: 0 }}
             animate={{ width: `${energy}%` }}
             transition={{ duration: 0.8, ease: "easeOut" }}
             style={{
@@ -96,10 +93,10 @@ const StatCards = () => {
           </span>
         </div>
         <p className="font-display text-lg font-bold text-foreground">
-          Multi-Vector Arbitrage
+          {strategy.name}
         </p>
         <div className="flex gap-2 mt-3 flex-wrap">
-          {["LinkedIn", "Crypto", "Micro-tasks"].map((tag) => (
+          {strategy.tags.map((tag) => (
             <span
               key={tag}
               className="text-[10px] font-mono px-2 py-1 rounded border border-border text-muted-foreground"
