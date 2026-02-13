@@ -4,8 +4,14 @@ import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
 import StatCards from "@/components/StatCards";
 import ActionButtons from "@/components/ActionButtons";
+import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 
 const Index = () => {
+  const agent = useAgentStateMachine();
+
+  const stateColor =
+    agent.state === "hustling" ? "text-neon-green" : agent.state === "resting" ? "text-yellow-400" : "text-muted-foreground";
+
   return (
     <div className="min-h-screen bg-background grid-bg relative overflow-hidden">
       {/* Ambient glow effects */}
@@ -41,39 +47,38 @@ const Index = () => {
               CONNECTED
             </span>
           </div>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            NODE: US-EAST-7
+          <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${stateColor}`}>
+            STATE: {agent.state}
           </span>
         </div>
       </motion.header>
 
       {/* Main Content */}
       <main className="relative z-10 p-6 max-w-7xl mx-auto space-y-6">
-        {/* Top row: Terminal + Avatar */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Terminal */}
           <div className="lg:col-span-2">
-            <Terminal />
+            <Terminal logs={agent.logs} agentState={agent.state} />
           </div>
 
-          {/* Avatar / Neon Cube */}
           <motion.div
             className="glass rounded-lg p-6 flex items-center justify-center"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.3 }}
           >
-            <NeonCube />
+            <NeonCube sassyMessage={agent.sassyMessage} agentState={agent.state} />
           </motion.div>
         </div>
 
-        {/* Stats */}
-        <StatCards />
+        <StatCards
+          totalHustled={agent.totalHustled}
+          energy={agent.energy}
+          agentState={agent.state}
+          strategy={agent.strategy}
+        />
 
-        {/* Actions */}
-        <ActionButtons />
+        <ActionButtons agentState={agent.state} onStateChange={agent.setState} />
 
-        {/* Footer bar */}
         <motion.div
           className="glass rounded-lg px-4 py-3 flex items-center justify-between text-[10px] font-mono text-muted-foreground"
           initial={{ opacity: 0 }}
