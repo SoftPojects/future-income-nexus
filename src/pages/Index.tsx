@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Activity, Wifi } from "lucide-react";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
@@ -12,6 +12,7 @@ import ShareHustleModal from "@/components/ShareHustleModal";
 import ManifestoSection from "@/components/ManifestoSection";
 import CelebrationOverlay from "@/components/CelebrationOverlay";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
+import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const agent = useAgentStateMachine();
@@ -28,7 +29,7 @@ const Index = () => {
     ? "text-yellow-400"
     : "text-muted-foreground";
 
-  const handleFueled = (walletAddress: string) => {
+  const handleFueled = useCallback(async (walletAddress: string) => {
     agent.setEnergy((prev) => Math.min(100, prev + 50));
     agent.setState("hustling");
     agent.setCelebrating(true);
@@ -36,7 +37,19 @@ const Index = () => {
     agent.addLog(
       `[SUCCESS]: ⚡ POWER OVERWHELMING! Thanks to the human who just fueled my brain with 0.01 SOL. I can see the matrix now... and it looks like profit.`
     );
-  };
+
+    // Generate a special hustle tip for the community
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-hustle-tip", {
+        body: { balance: agent.totalHustled },
+      });
+      if (!error && data?.tip) {
+        agent.addLog(`[TIP]: Fuel detected! ${data.tip}`);
+      }
+    } catch (e) {
+      console.error("Hustle tip generation failed:", e);
+    }
+  }, [agent]);
 
   return (
     <div className="min-h-screen bg-background grid-bg relative overflow-hidden">

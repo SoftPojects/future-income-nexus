@@ -316,6 +316,36 @@ export function useAgentStateMachine(): AgentContext {
     return () => clearInterval(interval);
   }, [state]);
 
+  // ── AI Market Insights every ~45s when hustling ──
+  useEffect(() => {
+    if (state !== "hustling") return;
+
+    const fetchInsight = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("generate-market-insight");
+        if (error) throw error;
+        if (data?.message) {
+          addLog(data.message);
+        }
+      } catch (e) {
+        console.error("Market insight failed:", e);
+        // Silent fallback — just skip this cycle
+      }
+    };
+
+    // First one after 20s, then every 45s
+    const initialTimeout = setTimeout(() => {
+      fetchInsight();
+    }, 20000);
+
+    const interval = setInterval(fetchInsight, 45000);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+  }, [state, addLog]);
+
   // ── Trim old logs in DB periodically ──
   useEffect(() => {
     const interval = setInterval(async () => {
