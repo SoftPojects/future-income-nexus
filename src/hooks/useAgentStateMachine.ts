@@ -135,6 +135,49 @@ export function useAgentStateMachine(): AgentContext {
     load();
   }, []);
 
+  // ── Realtime: subscribe to new logs from autonomous-tick cron ──
+  useEffect(() => {
+    const channel = supabase
+      .channel("agent-logs-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "agent_logs" },
+        (payload) => {
+          const msg = (payload.new as { message: string }).message;
+          setLogs((prev) => {
+            const updated = [...prev, msg];
+            return updated.length > 80 ? updated.slice(-80) : updated;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // ── Realtime: subscribe to agent_state changes from cron ──
+  useEffect(() => {
+    // Poll DB state every 10s to sync with autonomous-tick changes
+    const interval = setInterval(async () => {
+      if (!dbStateIdRef.current) return;
+      const { data } = await supabase
+        .from("agent_state")
+        .select("*")
+        .eq("id", dbStateIdRef.current)
+        .single();
+      if (data) {
+        setTotalHustled(Number(data.total_hustled));
+        setEnergy(data.energy_level);
+        setState(data.agent_status as AgentState);
+        const found = STRATEGIES.find((s) => s.name === data.current_strategy);
+        if (found) setStrategy(found);
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   // ── Persist state to DB whenever key values change ──
   useEffect(() => {
     if (!initializedRef.current || !dbStateIdRef.current) return;
