@@ -84,6 +84,11 @@ export interface AgentContext {
   setEnergy: (e: number | ((prev: number) => number)) => void;
   sassyMessage: string;
   strategy: { name: string; tags: string[] };
+  celebrating: boolean;
+  setCelebrating: (c: boolean) => void;
+  lastBenefactor: string | null;
+  setLastBenefactor: (addr: string) => void;
+  addLog: (line: string) => void;
 }
 
 export function useAgentStateMachine(): AgentContext {
@@ -248,7 +253,7 @@ export function useAgentStateMachine(): AgentContext {
     return () => clearInterval(interval);
   }, [state]);
 
-  // ── Energy management ──
+  // ── Energy management (100% lasts ~1 hour when hustling) ──
   useEffect(() => {
     if (state === "depleted") return;
     const interval = setInterval(() => {
@@ -257,7 +262,7 @@ export function useAgentStateMachine(): AgentContext {
         if (state === "resting") return Math.min(100, prev + 3);
         return Math.min(100, prev + 1);
       });
-    }, 3000);
+    }, 36000); // 36s per 1% = ~60 min for full drain
     return () => clearInterval(interval);
   }, [state]);
 
@@ -334,5 +339,8 @@ export function useAgentStateMachine(): AgentContext {
     return () => clearInterval(interval);
   }, []);
 
-  return { state, setState, logs, totalHustled, energy, setEnergy, sassyMessage, strategy };
+  const [celebrating, setCelebrating] = useState(false);
+  const [lastBenefactor, setLastBenefactor] = useState<string | null>(null);
+
+  return { state, setState, logs, totalHustled, energy, setEnergy, sassyMessage, strategy, celebrating, setCelebrating, lastBenefactor, setLastBenefactor, addLog };
 }

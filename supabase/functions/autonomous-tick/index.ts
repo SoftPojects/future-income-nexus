@@ -100,7 +100,7 @@ serve(async (req) => {
 
     // Calculate earnings and energy cost
     const earned = +(Math.random() * 0.45 + 0.05).toFixed(2);
-    const energyCost = Math.floor(Math.random() * 2) + 1; // 1-2%
+    const energyCost = 1; // 1% per tick, slower drain
     const newBalance = +(Number(agent.total_hustled) + earned).toFixed(2);
     const newEnergy = Math.max(0, agent.energy_level - energyCost);
     const newStatus = newEnergy <= 0 ? "depleted" : "hustling";

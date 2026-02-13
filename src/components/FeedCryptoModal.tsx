@@ -18,7 +18,7 @@ const DEFAULT_SOL_AMOUNT = 0.01;
 interface FeedCryptoModalProps {
   open: boolean;
   onClose: () => void;
-  onFueled: () => void;
+  onFueled: (walletAddress: string) => void;
 }
 
 type FeedStep = "amount" | "sending" | "verifying" | "success" | "error";
@@ -79,7 +79,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
       }
 
       setStep("success");
-      onFueled();
+      onFueled(publicKey.toBase58());
     } catch (e: any) {
       console.error("Feed transaction failed:", e);
       setErrorMsg(e?.message || "Transaction failed");
