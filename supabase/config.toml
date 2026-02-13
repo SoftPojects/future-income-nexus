@@ -1,1 +1,4 @@
 project_id = "bigrgsmwbqvjroaoixfj"
+
+[functions.verify-sol-transaction]
+verify_jwt = false
