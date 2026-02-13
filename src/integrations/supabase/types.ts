@@ -59,6 +59,27 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: number
+          role: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: never
+          role: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: never
+          role?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
