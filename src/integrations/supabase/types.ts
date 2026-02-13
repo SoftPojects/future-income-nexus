@@ -80,6 +80,33 @@ export type Database = {
         }
         Relationships: []
       }
+      leaderboard: {
+        Row: {
+          agent_name: string
+          avatar_emoji: string
+          created_at: string
+          id: string
+          is_player: boolean
+          total_hustled: number
+        }
+        Insert: {
+          agent_name: string
+          avatar_emoji?: string
+          created_at?: string
+          id?: string
+          is_player?: boolean
+          total_hustled?: number
+        }
+        Update: {
+          agent_name?: string
+          avatar_emoji?: string
+          created_at?: string
+          id?: string
+          is_player?: boolean
+          total_hustled?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

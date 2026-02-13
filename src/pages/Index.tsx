@@ -5,6 +5,7 @@ import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
 import StatCards from "@/components/StatCards";
 import ActionButtons from "@/components/ActionButtons";
+import Leaderboard from "@/components/Leaderboard";
 import FeedCryptoModal from "@/components/FeedCryptoModal";
 import ShareHustleModal from "@/components/ShareHustleModal";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
@@ -101,6 +102,11 @@ const Index = () => {
           onStateChange={agent.setState}
           onFeedCrypto={() => setFeedOpen(true)}
           onShareHustle={() => setShareOpen(true)}
+        />
+
+        <Leaderboard
+          playerBalance={agent.totalHustled}
+          sassyMessage={agent.sassyMessage}
         />
 
         <motion.div
