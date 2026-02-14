@@ -125,7 +125,15 @@ serve(async (req) => {
         );
       }
 
-      const result = await postToTwitter(tweet.content);
+      let result = await postToTwitter(tweet.content);
+      // Retry on 403 with @ mentions stripped
+      if (!result.success && result.error?.includes("403") && tweet.content.includes("@")) {
+        const stripped = tweet.content.replace(/@(\w+)/g, "$1");
+        result = await postToTwitter(stripped);
+        if (result.success) {
+          await sb.from("tweet_queue").update({ content: stripped }).eq("id", tweet.id);
+        }
+      }
       if (result.success) {
         await sb.from("tweet_queue").update({ status: "posted", posted_at: new Date().toISOString(), error_message: null }).eq("id", tweet.id);
       } else {
@@ -152,7 +160,15 @@ serve(async (req) => {
       });
     }
 
-    const result = await postToTwitter(nextTweet.content);
+    let result = await postToTwitter(nextTweet.content);
+    // Retry on 403 with @ mentions stripped
+    if (!result.success && result.error?.includes("403") && nextTweet.content.includes("@")) {
+      const stripped = nextTweet.content.replace(/@(\w+)/g, "$1");
+      result = await postToTwitter(stripped);
+      if (result.success) {
+        await sb.from("tweet_queue").update({ content: stripped }).eq("id", nextTweet.id);
+      }
+    }
     if (result.success) {
       await sb.from("tweet_queue").update({ status: "posted", posted_at: new Date().toISOString(), error_message: null }).eq("id", nextTweet.id);
     } else {
