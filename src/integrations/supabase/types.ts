@@ -80,6 +80,33 @@ export type Database = {
         }
         Relationships: []
       }
+      global_messages: {
+        Row: {
+          content: string
+          created_at: string
+          display_name: string
+          id: string
+          is_holder: boolean
+          wallet_address: string | null
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          display_name?: string
+          id?: string
+          is_holder?: boolean
+          wallet_address?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          display_name?: string
+          id?: string
+          is_holder?: boolean
+          wallet_address?: string | null
+        }
+        Relationships: []
+      }
       leaderboard: {
         Row: {
           agent_name: string

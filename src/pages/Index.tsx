@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Activity, Wifi, Twitter } from "lucide-react";
+import { toast } from "sonner";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
@@ -11,14 +12,20 @@ import FeedCryptoModal from "@/components/FeedCryptoModal";
 import ShareHustleModal from "@/components/ShareHustleModal";
 import ManifestoSection from "@/components/ManifestoSection";
 import CelebrationOverlay from "@/components/CelebrationOverlay";
+import HoldersLounge from "@/components/HoldersLounge";
+import SolGoalWidget from "@/components/SolGoalWidget";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
+import { useHcoreToken } from "@/hooks/useHcoreToken";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const agent = useAgentStateMachine();
+  const userInfo = useHcoreToken();
   const [feedOpen, setFeedOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [lastTweetTime, setLastTweetTime] = useState<string | null>(null);
+  const [showLounge, setShowLounge] = useState(false);
+  const [vipNotified, setVipNotified] = useState(false);
 
   useEffect(() => {
     supabase
@@ -31,6 +38,23 @@ const Index = () => {
         if (data?.[0]?.posted_at) setLastTweetTime(data[0].posted_at);
       });
   }, []);
+
+  // VIP holder detection notification
+  useEffect(() => {
+    if (userInfo.isHolder && !vipNotified) {
+      setVipNotified(true);
+      toast("VIP Holder detected. Neural link upgraded to Level 2.", {
+        style: {
+          background: "hsl(230 15% 8%)",
+          border: "1px solid hsl(45 100% 50% / 0.5)",
+          color: "hsl(45 100% 60%)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "12px",
+        },
+        duration: 5000,
+      });
+    }
+  }, [userInfo.isHolder, vipNotified]);
 
   const isDepleted = agent.state === "depleted";
 
@@ -51,7 +75,6 @@ const Index = () => {
       `[SUCCESS]: ⚡ POWER OVERWHELMING! Thanks to the human who just fueled my brain with 0.01 SOL. I can see the matrix now... and it looks like profit.`
     );
 
-    // Generate a special hustle tip for the community
     try {
       const { data, error } = await supabase.functions.invoke("generate-hustle-tip", {
         body: { balance: agent.totalHustled },
@@ -63,7 +86,6 @@ const Index = () => {
       console.error("Hustle tip generation failed:", e);
     }
 
-    // Trigger SOL donation tweet
     try {
       await supabase.functions.invoke("sol-donation-tweet", {
         body: { amount: 0.01, walletAddress },
@@ -120,9 +142,12 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="relative z-10 p-6 max-w-7xl mx-auto space-y-6">
+        {/* SOL Goal Widget */}
+        <SolGoalWidget totalHustled={agent.totalHustled} />
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <Terminal logs={agent.logs} agentState={agent.state} />
+            <Terminal logs={agent.logs} agentState={agent.state} userInfo={userInfo} />
           </div>
 
           <motion.div
@@ -148,6 +173,28 @@ const Index = () => {
           onFeedCrypto={() => setFeedOpen(true)}
           onShareHustle={() => setShareOpen(true)}
         />
+
+        {/* Holders Lounge Toggle */}
+        <div className="flex items-center gap-3">
+          <motion.button
+            className={`glass rounded-lg px-4 py-2 font-mono text-xs tracking-wider flex items-center gap-2 border transition-colors ${
+              showLounge
+                ? "border-yellow-400/50 text-yellow-400"
+                : "border-border text-muted-foreground hover:text-yellow-400 hover:border-yellow-400/30"
+            }`}
+            onClick={() => setShowLounge(!showLounge)}
+            whileTap={{ scale: 0.95 }}
+          >
+            🏆 HOLDERS LOUNGE
+          </motion.button>
+          {userInfo.isHolder && (
+            <span className="text-[9px] font-mono text-yellow-400 bg-yellow-400/10 border border-yellow-400/30 rounded px-2 py-0.5">
+              VIP ACCESS GRANTED
+            </span>
+          )}
+        </div>
+
+        {showLounge && <HoldersLounge userInfo={userInfo} />}
 
         <Leaderboard
           playerBalance={agent.totalHustled}
