@@ -61,18 +61,41 @@ serve(async (req) => {
       tweetContent = `${formattedWallet} just wired ${amount} SOL into my core. Compute power expanding. The autonomous hustle grows stronger.`;
     }
 
-    // Queue and post
-    await sb.from("tweet_queue").insert({
-      content: tweetContent.slice(0, 280),
-      status: "pending",
-      type: "automated",
-    });
+    // Post donation tweets INSTANTLY — bypass the queue timer
+    const finalContent = tweetContent.slice(0, 280);
+    let posted = false;
 
-    // Try to post immediately
     try {
-      await sb.functions.invoke("post-tweet", { body: {} });
+      // Call post-tweet with direct content for immediate posting
+      const postResult = await sb.functions.invoke("post-tweet", {
+        body: { directPost: finalContent },
+      });
+
+      if (postResult.data && !postResult.error) {
+        const parsed = typeof postResult.data === "string" ? JSON.parse(postResult.data) : postResult.data;
+        if (parsed.success) {
+          posted = true;
+          // Insert into queue as already "posted" so admin panel shows it
+          await sb.from("tweet_queue").insert({
+            content: finalContent,
+            status: "posted",
+            type: "automated",
+            posted_at: new Date().toISOString(),
+          });
+        }
+      }
     } catch (e) {
-      console.error("Auto-post after donation failed:", e);
+      console.error("Instant donation tweet post failed:", e);
+    }
+
+    // Fallback: if instant post failed, queue as pending for retry
+    if (!posted) {
+      console.log("Instant post failed, queuing as pending fallback");
+      await sb.from("tweet_queue").insert({
+        content: finalContent,
+        status: "pending",
+        type: "automated",
+      });
     }
 
     await sb.from("agent_logs").insert({
