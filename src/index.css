@@ -148,3 +148,14 @@
     to { transform: rotateX(25deg) rotateY(360deg); }
   }
 }
+
+/* Ensure Solana wallet modal sits above everything */
+.wallet-adapter-modal {
+  z-index: 9999 !important;
+}
+.wallet-adapter-modal-overlay {
+  z-index: 9998 !important;
+}
+.wallet-adapter-modal-wrapper {
+  z-index: 9999 !important;
+}

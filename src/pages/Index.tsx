@@ -58,7 +58,7 @@ const MobileWalletButton = ({ onBeforeOpen }: { onBeforeOpen: () => void }) => {
       onClick={() => {
         onBeforeOpen();
         // Small delay to let the sheet close before wallet modal opens
-        setTimeout(() => setVisible(true), 300);
+        setTimeout(() => setVisible(true), 500);
       }}
     >
       <Wallet className="w-5 h-5" />
