@@ -1,6 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Activity, Wifi } from "lucide-react";
+import { Activity, Wifi, Twitter } from "lucide-react";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
@@ -18,6 +18,19 @@ const Index = () => {
   const agent = useAgentStateMachine();
   const [feedOpen, setFeedOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [lastTweetTime, setLastTweetTime] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase
+      .from("tweet_queue")
+      .select("posted_at")
+      .eq("status", "posted")
+      .order("posted_at", { ascending: false })
+      .limit(1)
+      .then(({ data }) => {
+        if (data?.[0]?.posted_at) setLastTweetTime(data[0].posted_at);
+      });
+  }, []);
 
   const isDepleted = agent.state === "depleted";
 
@@ -140,6 +153,12 @@ const Index = () => {
           transition={{ delay: 0.6 }}
         >
           <span>SYSTEM UPTIME: 47h 23m 11s</span>
+          {lastTweetTime && (
+            <span className="text-neon-cyan flex items-center gap-1">
+              <Twitter className="w-3 h-3" />
+              LAST X TRANSMISSION: {new Date(lastTweetTime).toLocaleString()}
+            </span>
+          )}
           {agent.lastBenefactor && (
             <span className="text-neon-magenta">
               LAST BENEFACTOR: {agent.lastBenefactor.slice(0, 4)}...{agent.lastBenefactor.slice(-4)}
