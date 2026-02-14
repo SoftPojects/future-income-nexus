@@ -7,9 +7,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-admin-token, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function verifyAdmin(req: Request, sb: any): Promise<boolean> {
-  // Try x-admin-token first, then Authorization Bearer
-  const token = req.headers.get("x-admin-token") || req.headers.get("authorization")?.replace("Bearer ", "");
+async function verifyAdminToken(token: string): Promise<boolean> {
   if (!token) return false;
   const secret = Deno.env.get("ADMIN_PASSWORD");
   if (!secret) return false;
@@ -29,13 +27,13 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const body = await req.json();
+    const { action, admin_token } = body;
+
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    if (!(await verifyAdmin(req, sb))) {
+    if (!(await verifyAdminToken(admin_token || ""))) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-
-    const body = await req.json();
-    const { action } = body;
 
     if (action === "add") {
       const handle = body.x_handle?.replace(/^@/, "").trim();

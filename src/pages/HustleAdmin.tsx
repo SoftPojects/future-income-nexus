@@ -112,10 +112,11 @@ const HustleAdmin = () => {
     if (data) setMentions(data);
   }, []);
 
+  const getAdminToken = () => sessionStorage.getItem("admin_token") || "";
+
   const fetchTargets = useCallback(async () => {
     const { data, error } = await supabase.functions.invoke("admin-hunter", {
-      body: { action: "list" },
-      headers: getAdminHeaders(),
+      body: { action: "list", admin_token: getAdminToken() },
     });
     if (!error && data?.targets) setTargets(data.targets);
   }, []);
@@ -236,8 +237,7 @@ const HustleAdmin = () => {
     setAddingTarget(true);
     try {
       const { error } = await supabase.functions.invoke("admin-hunter", {
-        body: { action: "add", x_handle: newHandle.trim() },
-        headers: getAdminHeaders(),
+        body: { action: "add", x_handle: newHandle.trim(), admin_token: getAdminToken() },
       });
       if (error) throw error;
       setNewHandle("");
@@ -254,8 +254,7 @@ const HustleAdmin = () => {
     setRoastingId(id);
     try {
       const { data, error } = await supabase.functions.invoke("admin-hunter", {
-        body: { action: "roast", id },
-        headers: getAdminHeaders(),
+        body: { action: "roast", id, admin_token: getAdminToken() },
       });
       if (error) throw error;
       toast({ title: "ROAST DEPLOYED", description: data?.content?.slice(0, 80) + "..." });
@@ -270,8 +269,7 @@ const HustleAdmin = () => {
 
   const handleDeleteTarget = async (id: string) => {
     await supabase.functions.invoke("admin-hunter", {
-      body: { action: "delete", id },
-      headers: getAdminHeaders(),
+      body: { action: "delete", id, admin_token: getAdminToken() },
     });
     fetchTargets();
   };
