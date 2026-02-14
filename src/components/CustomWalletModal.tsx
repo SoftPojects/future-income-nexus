@@ -24,13 +24,33 @@ const CustomWalletModal: FC = () => {
 
   const allWallets = installed.length ? [...installed, ...notInstalled] : notInstalled;
 
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
   const handleSelect = useCallback(
     (walletName: string) => {
+      const wallet = wallets.find((w) => w.adapter.name === walletName);
+      const isInstalled = wallet?.readyState === WalletReadyState.Installed;
+
+      // On mobile, if wallet is not detected (no browser extension), use deep link
+      if (isMobile && !isInstalled) {
+        const currentUrl = encodeURIComponent(window.location.href);
+        if (walletName.toLowerCase().includes("phantom")) {
+          // Opens the current page inside Phantom's in-app browser
+          window.location.href = `https://phantom.app/ul/browse/${currentUrl}`;
+        } else if (walletName.toLowerCase().includes("solflare")) {
+          window.location.href = `https://solflare.com/ul/v1/browse/${currentUrl}`;
+        } else {
+          // Fallback: just select and hope adapter handles it
+          select(walletName as any);
+        }
+        setVisible(false);
+        return;
+      }
+
       select(walletName as any);
-      // Don't call preventDefault — let the browser handle deep links for mobile
       setVisible(false);
     },
-    [select, setVisible]
+    [select, setVisible, wallets, isMobile]
   );
 
   const onClose = useCallback(() => setVisible(false), [setVisible]);
