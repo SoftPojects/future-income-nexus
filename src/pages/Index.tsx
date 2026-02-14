@@ -17,6 +17,9 @@ import AlphaDrops from "@/components/AlphaDrops";
 import SolGoalWidget from "@/components/SolGoalWidget";
 import LiveXTransmissions from "@/components/LiveXTransmissions";
 import AudioToggle from "@/components/AudioToggle";
+import TradeHcoreButton from "@/components/TradeHcoreButton";
+import TokenStatus from "@/components/TokenStatus";
+import HuntingIndicator from "@/components/HuntingIndicator";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 import { useHcoreToken } from "@/hooks/useHcoreToken";
 import { useAudioSystem } from "@/hooks/useAudioSystem";
@@ -136,6 +139,7 @@ const Index = () => {
           </h1>
         </div>
         <div className="flex items-center gap-4">
+          <TradeHcoreButton />
           <ConnectWalletButton />
           <AudioToggle muted={audio.muted} onToggle={audio.toggleMute} />
           <div className="flex items-center gap-2">
@@ -152,6 +156,9 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="relative z-10 p-6 max-w-7xl mx-auto space-y-6">
+        {/* Token Status */}
+        <TokenStatus />
+
         {/* SOL Goal Widget */}
         <SolGoalWidget />
 
@@ -249,6 +256,7 @@ const Index = () => {
               LAST BENEFACTOR: {agent.lastBenefactor.slice(0, 4)}...{agent.lastBenefactor.slice(-4)}
             </span>
           )}
+          <HuntingIndicator />
           <span className="text-neon-cyan">LATENCY: 12ms</span>
         </motion.div>
       </main>

@@ -158,6 +158,30 @@ export type Database = {
         }
         Relationships: []
       }
+      target_agents: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          last_roasted_at: string | null
+          x_handle: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_roasted_at?: string | null
+          x_handle: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          last_roasted_at?: string | null
+          x_handle?: string
+        }
+        Relationships: []
+      }
       tweet_queue: {
         Row: {
           content: string

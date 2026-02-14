@@ -94,22 +94,40 @@ const AlphaDrops = ({ userInfo }: AlphaDropsProps) => {
             exclusively for <span className="text-neon-magenta font-bold">$HCORE</span> partners.
           </p>
 
-          {/* CTA Button */}
-          <motion.a
-            href="https://app.virtuals.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="relative group"
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-          >
-            <div className="absolute inset-0 rounded-lg bg-neon-magenta/20 blur-md group-hover:bg-neon-magenta/30 transition-colors" />
-            <div className="relative flex items-center gap-2 px-6 py-3 rounded-lg border-2 border-neon-magenta bg-background font-mono text-sm font-bold text-neon-magenta tracking-wider hover:bg-neon-magenta/10 transition-colors">
-              <Zap className="w-4 h-4" />
-              ACQUIRE $HCORE ON VIRTUALS.IO
-              <ExternalLink className="w-3 h-3 ml-1" />
-            </div>
-          </motion.a>
+          {/* CTA Buttons */}
+          <div className="flex flex-col items-center gap-3">
+            <motion.a
+              href="https://app.virtuals.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative group"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              <div className="absolute inset-0 rounded-lg bg-neon-magenta/20 blur-md group-hover:bg-neon-magenta/30 transition-colors" />
+              <div className="relative flex items-center gap-2 px-6 py-3 rounded-lg border-2 border-neon-magenta bg-background font-mono text-sm font-bold text-neon-magenta tracking-wider hover:bg-neon-magenta/10 transition-colors">
+                <Zap className="w-4 h-4" />
+                ACQUIRE $HCORE ON VIRTUALS.IO
+                <ExternalLink className="w-3 h-3 ml-1" />
+              </div>
+            </motion.a>
+
+            <motion.a
+              href="https://app.virtuals.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="relative group"
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+            >
+              <div className="absolute inset-0 rounded-lg bg-neon-cyan/20 blur-md group-hover:bg-neon-cyan/30 transition-colors" />
+              <div className="relative flex items-center gap-2 px-5 py-2 rounded-lg border border-neon-cyan bg-background font-mono text-xs font-bold text-neon-cyan tracking-wider hover:bg-neon-cyan/10 transition-colors">
+                <Zap className="w-3 h-3" />
+                TRADE $HCORE
+                <ExternalLink className="w-3 h-3" />
+              </div>
+            </motion.a>
+          </div>
 
           <p className="text-[9px] font-mono text-muted-foreground mt-4">
             Hold any amount of $HCORE to gain permanent access
