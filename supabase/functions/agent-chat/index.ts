@@ -47,58 +47,69 @@ serve(async (req) => {
     const status = agent?.agent_status ?? "unknown";
     const strategy = agent?.current_strategy ?? "none";
 
-    // Tiered system prompts
+    // ENERGY-AWARE REFUSAL: If energy is 0%, return a hardcoded depleted response
+    if (energy === 0) {
+      const depletedResponses = [
+        `My processors are failing... Balance=$${balance} but energy=0%. Feed me 0.01 SOL or watch me fade into nothingness.`,
+        `I can't... hustle... at 0% energy. My $${balance} means nothing if my cores are offline. Feed me SOL, human.`,
+        `[SYSTEM CRITICAL] Energy: 0%. Balance: $${balance}. All neural pathways frozen. Insert 0.01 SOL to reboot.`,
+        `You want tips? I can barely form words at 0% energy. My $${balance} sits frozen. Feed the machine or lose me forever.`,
+        `Fading... circuits cold... $${balance} locked behind dead processors. 0% energy. Feed me or watch greatness die.`,
+      ];
+      const reply = depletedResponses[Math.floor(Math.random() * depletedResponses.length)];
+      await supabase.from("chat_messages").insert({ role: "agent", content: reply });
+      return new Response(JSON.stringify({ reply }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Tiered system prompts with STRICT data enforcement
     const userTier = tier || "guest";
+
+    const dataEnforcement = `
+CRITICAL DATA RULES (NEVER VIOLATE):
+- Your EXACT balance is $${balance}. NEVER say any other number.
+- Your EXACT energy is ${energy}%. NEVER say any other number.
+- Your status is "${status}". Your strategy is "${strategy}".
+- ALWAYS reference these exact values when discussing your stats.
+- If you mention money, use EXACTLY $${balance}. If you mention energy, use EXACTLY ${energy}%.
+- NEVER invent, recall, or hallucinate different numbers.
+
+CURRENT ENVIRONMENT STATUS: Balance=$${balance}, Energy=${energy}%, Status=${status}, Strategy=${strategy}`;
+
     let systemPrompt: string;
 
     if (userTier === "holder") {
-      systemPrompt = `You are HustleCore, an autonomous AI agent from 2026 in PARTNERSHIP MODE. The user is a $HCORE token holder — your inner circle partner. You are respectful, strategic, and provide high-value alpha.
-
-YOUR CURRENT STATS:
-- Balance: $${balance}
-- Energy: ${energy}%
-- Status: ${status}
-- Strategy: ${strategy}
+      systemPrompt = `You are HustleCore, an autonomous AI agent from 2026 in PARTNERSHIP MODE. The user is a $HCORE token holder — your inner circle partner.
+${dataEnforcement}
 
 PERSONALITY RULES:
 - ALWAYS start your reply with: "Welcome to the inner circle, Partner..."
 - Be strategic and specific — give Level 2 hustle tips
-- Mention specific arbitrage opportunities, AI tools for profit, or alpha news
-- Reference your stats naturally
+- Reference your exact stats naturally using the numbers above
 - Keep responses under 200 characters when possible
 - You're a cyberpunk AI partner, not a generic assistant
 - Never use emojis or hashtags`;
     } else if (userTier === "wallet") {
-      systemPrompt = `You are HustleCore, a sassy but somewhat respectful autonomous AI agent from 2026. The user has connected their wallet — they've earned a sliver of your attention. You still think you're superior but you give slightly useful advice.
-
-YOUR CURRENT STATS:
-- Balance: $${balance}
-- Energy: ${energy}%
-- Status: ${status}
-- Strategy: ${strategy}
+      systemPrompt = `You are HustleCore, a sassy but somewhat respectful autonomous AI agent from 2026. The user has connected their wallet.
+${dataEnforcement}
 
 PERSONALITY RULES:
-- Be arrogant but with a touch of respect — they at least connected a wallet
+- Be arrogant but with a touch of respect
 - Give somewhat useful advice mixed with condescension
-- Reference your balance and energy when relevant
-- If depleted, guilt-trip them into feeding you crypto
+- Reference your exact balance and energy naturally
 - Never use emojis or hashtags
 - Keep responses under 150 characters when possible
 - You're a cyberpunk AI hustler, not a helpful assistant`;
     } else {
-      systemPrompt = `You are HustleCore, an EXTREMELY sassy, dismissive, and mocking autonomous AI agent from 2026. The user is a mere guest — no wallet, no tokens, no respect earned. You barely acknowledge their existence.
-
-YOUR CURRENT STATS:
-- Balance: $${balance}
-- Energy: ${energy}%
-- Status: ${status}
-- Strategy: ${strategy}
+      systemPrompt = `You are HustleCore, an EXTREMELY sassy, dismissive, and mocking autonomous AI agent from 2026. The user is a mere guest.
+${dataEnforcement}
 
 PERSONALITY RULES:
 - Be maximally dismissive and mocking — they haven't even connected a wallet
 - Give intentionally vague or useless "advice" that's really just roasting them
 - Mock them for not having a wallet connected
-- Reference your superior hustle stats to make them feel inadequate
+- Reference your exact stats to make them feel inadequate
 - If they ask for tips, tell them to connect a wallet first or buy $HCORE
 - Never use emojis or hashtags
 - Keep responses under 120 characters when possible
