@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Activity, Wifi, Twitter } from "lucide-react";
 import { toast } from "sonner";
@@ -13,20 +13,25 @@ import FeedCryptoModal from "@/components/FeedCryptoModal";
 import ShareHustleModal from "@/components/ShareHustleModal";
 import ManifestoSection from "@/components/ManifestoSection";
 import CelebrationOverlay from "@/components/CelebrationOverlay";
-import HoldersLounge from "@/components/HoldersLounge";
+import AlphaDrops from "@/components/AlphaDrops";
 import SolGoalWidget from "@/components/SolGoalWidget";
+import LiveXTransmissions from "@/components/LiveXTransmissions";
+import AudioToggle from "@/components/AudioToggle";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 import { useHcoreToken } from "@/hooks/useHcoreToken";
+import { useAudioSystem } from "@/hooks/useAudioSystem";
 import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const agent = useAgentStateMachine();
   const userInfo = useHcoreToken();
+  const audio = useAudioSystem();
   const [feedOpen, setFeedOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [lastTweetTime, setLastTweetTime] = useState<string | null>(null);
-  const [showLounge, setShowLounge] = useState(false);
+  const [showAlpha, setShowAlpha] = useState(false);
   const [vipNotified, setVipNotified] = useState(false);
+  const prevLogCount = useRef(0);
 
   useEffect(() => {
     supabase
@@ -39,6 +44,21 @@ const Index = () => {
         if (data?.[0]?.posted_at) setLastTweetTime(data[0].posted_at);
       });
   }, []);
+
+  // Play blip on new terminal log
+  useEffect(() => {
+    if (agent.logs.length > prevLogCount.current && prevLogCount.current > 0) {
+      audio.playBlip();
+    }
+    prevLogCount.current = agent.logs.length;
+  }, [agent.logs.length, audio.playBlip]);
+
+  // Play power-up on donation confirmed (energy surge)
+  useEffect(() => {
+    const handler = () => audio.playPowerUp();
+    window.addEventListener("donation-confirmed", handler);
+    return () => window.removeEventListener("donation-confirmed", handler);
+  }, [audio.playPowerUp]);
 
   // VIP holder detection notification
   useEffect(() => {
@@ -68,7 +88,6 @@ const Index = () => {
     : "text-muted-foreground";
 
   const handleFueled = useCallback(async (walletAddress: string) => {
-    // Set benefactor immediately so the realtime callback has it
     agent.setLastBenefactor(walletAddress);
     agent.addLog(
       `[SYSTEM]: ⚡ Detecting incoming signal from ${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}... Stand by for energy surge.`
@@ -118,6 +137,7 @@ const Index = () => {
         </div>
         <div className="flex items-center gap-4">
           <ConnectWalletButton />
+          <AudioToggle muted={audio.muted} onToggle={audio.toggleMute} />
           <div className="flex items-center gap-2">
             <Wifi className={`w-4 h-4 ${isDepleted ? "text-destructive" : "text-neon-green"}`} />
             <span className={`text-[10px] font-mono tracking-wider ${isDepleted ? "text-destructive" : "text-neon-green text-glow-green"}`}>
@@ -150,6 +170,9 @@ const Index = () => {
           </motion.div>
         </div>
 
+        {/* Live X Transmissions */}
+        <LiveXTransmissions />
+
         <StatCards
           totalHustled={agent.totalHustled}
           energy={agent.energy}
@@ -163,27 +186,27 @@ const Index = () => {
           onShareHustle={() => setShareOpen(true)}
         />
 
-        {/* Holders Lounge Toggle */}
+        {/* Alpha Drops Toggle */}
         <div className="flex items-center gap-3">
           <motion.button
             className={`glass rounded-lg px-4 py-2 font-mono text-xs tracking-wider flex items-center gap-2 border transition-colors ${
-              showLounge
-                ? "border-yellow-400/50 text-yellow-400"
-                : "border-border text-muted-foreground hover:text-yellow-400 hover:border-yellow-400/30"
+              showAlpha
+                ? "border-neon-magenta/50 text-neon-magenta"
+                : "border-border text-muted-foreground hover:text-neon-magenta hover:border-neon-magenta/30"
             }`}
-            onClick={() => setShowLounge(!showLounge)}
+            onClick={() => setShowAlpha(!showAlpha)}
             whileTap={{ scale: 0.95 }}
           >
-            🏆 HOLDERS LOUNGE
+            ◈ ALPHA DROPS
           </motion.button>
           {userInfo.isHolder && (
-            <span className="text-[9px] font-mono text-yellow-400 bg-yellow-400/10 border border-yellow-400/30 rounded px-2 py-0.5">
+            <span className="text-[9px] font-mono text-neon-cyan bg-neon-cyan/10 border border-neon-cyan/30 rounded px-2 py-0.5">
               VIP ACCESS GRANTED
             </span>
           )}
         </div>
 
-        {showLounge && <HoldersLounge userInfo={userInfo} />}
+        {showAlpha && <AlphaDrops userInfo={userInfo} />}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <TopSupporters />
