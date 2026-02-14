@@ -97,6 +97,14 @@ serve(async (req) => {
       );
     }
 
+    // Direct post mode — used by donation tweets for instant posting
+    if (body.directPost && typeof body.directPost === "string") {
+      const result = await postToTwitter(body.directPost);
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const sb = createClient(supabaseUrl, supabaseKey);
