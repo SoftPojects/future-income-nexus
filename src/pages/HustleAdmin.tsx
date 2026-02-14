@@ -126,11 +126,10 @@ const HustleAdmin = () => {
     if (!manualTweet.trim()) return;
     setPosting(true);
     try {
-      await supabase.from("tweet_queue").insert({
-        content: manualTweet.trim(),
-        type: "manual",
-        status: "pending",
+      const { error } = await supabase.functions.invoke("admin-tweet-actions", {
+        body: { action: "insert", content: manualTweet.trim(), type: "manual" },
       });
+      if (error) throw error;
       setManualTweet("");
       toast({ title: "QUEUED", description: "Manual tweet added to queue." });
       fetchTweets();
@@ -153,7 +152,9 @@ const HustleAdmin = () => {
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from("tweet_queue").delete().eq("id", id);
+    await supabase.functions.invoke("admin-tweet-actions", {
+      body: { action: "delete", id },
+    });
     fetchTweets();
   };
 
@@ -164,7 +165,9 @@ const HustleAdmin = () => {
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
-    await supabase.from("tweet_queue").update({ content: editContent }).eq("id", editingId);
+    await supabase.functions.invoke("admin-tweet-actions", {
+      body: { action: "update", id: editingId, content: editContent },
+    });
     setEditingId(null);
     setEditContent("");
     fetchTweets();

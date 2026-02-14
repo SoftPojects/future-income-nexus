@@ -21,19 +21,14 @@ const Leaderboard = ({ playerBalance, sassyMessage }: LeaderboardProps) => {
   const [loading, setLoading] = useState(true);
 
   const fetchLeaderboard = useCallback(async () => {
-    // Sync player balance first
-    await supabase
-      .from("leaderboard")
-      .update({ total_hustled: playerBalance })
-      .eq("is_player", true);
+    // Sync player balance and fetch leaderboard via edge function
+    const { data: result, error } = await supabase.functions.invoke("manage-agent", {
+      body: { action: "sync_leaderboard", playerBalance },
+    });
 
-    const { data } = await supabase
-      .from("leaderboard")
-      .select("*")
-      .order("total_hustled", { ascending: false })
-      .limit(10);
-
-    if (data) setEntries(data as LeaderboardEntry[]);
+    if (!error && result?.entries) {
+      setEntries(result.entries as LeaderboardEntry[]);
+    }
     setLoading(false);
   }, [playerBalance]);
 
