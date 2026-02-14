@@ -1,8 +1,10 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Wifi, Twitter, Menu, X } from "lucide-react";
+import { Activity, Wifi, Twitter, Menu, X, Wallet } from "lucide-react";
 import { toast } from "sonner";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
@@ -26,6 +28,45 @@ import { useHcoreToken } from "@/hooks/useHcoreToken";
 import { useAudioSystem } from "@/hooks/useAudioSystem";
 import { supabase } from "@/integrations/supabase/client";
 
+/** Mobile wallet button that closes the sheet first, then opens wallet modal */
+const MobileWalletButton = ({ onBeforeOpen }: { onBeforeOpen: () => void }) => {
+  const { publicKey, disconnect, connected } = useWallet();
+  const { setVisible } = useWalletModal();
+
+  const truncatedAddress = publicKey
+    ? `${publicKey.toBase58().slice(0, 4)}...${publicKey.toBase58().slice(-4)}`
+    : null;
+
+  if (connected && publicKey) {
+    return (
+      <motion.button
+        className="w-full glass rounded-lg px-4 py-3 font-mono text-xs tracking-wider text-neon-green border border-neon-green/30 flex items-center justify-center gap-3 cursor-pointer"
+        whileTap={{ scale: 0.97 }}
+        onClick={() => disconnect()}
+      >
+        <Wallet className="w-4 h-4" />
+        <span className="text-glow-green">{truncatedAddress}</span>
+        <span className="text-[9px] text-muted-foreground ml-auto">TAP TO DISCONNECT</span>
+      </motion.button>
+    );
+  }
+
+  return (
+    <motion.button
+      className="w-full rounded-lg px-4 py-3.5 font-mono text-sm font-bold tracking-wider text-neon-magenta border-2 border-neon-magenta/50 bg-neon-magenta/10 flex items-center justify-center gap-3 cursor-pointer"
+      whileTap={{ scale: 0.97 }}
+      onClick={() => {
+        onBeforeOpen();
+        // Small delay to let the sheet close before wallet modal opens
+        setTimeout(() => setVisible(true), 300);
+      }}
+    >
+      <Wallet className="w-5 h-5" />
+      CONNECT WALLET
+    </motion.button>
+  );
+};
+
 const Index = () => {
   const agent = useAgentStateMachine();
   const userInfo = useHcoreToken();
@@ -35,6 +76,7 @@ const Index = () => {
   const [lastTweetTime, setLastTweetTime] = useState<string | null>(null);
   const [showAlpha, setShowAlpha] = useState(false);
   const [vipNotified, setVipNotified] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const prevLogCount = useRef(0);
 
   useEffect(() => {
@@ -167,13 +209,14 @@ const Index = () => {
             </span>
           </div>
 
-          <Sheet>
+          <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild>
               <button className="p-2 rounded-lg border border-border hover:border-neon-cyan/50 hover:bg-neon-cyan/5 transition-all">
                 <Menu className="w-5 h-5 text-neon-cyan" />
               </button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[280px] bg-background border-l border-neon-cyan/20 p-0">
+            <SheetContent side="right" className="w-[300px] bg-background border-l border-neon-cyan/20 p-0 z-40">
+              <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
               <div className="flex flex-col h-full">
                 {/* Menu header */}
                 <div className="px-5 py-4 border-b border-border flex items-center gap-2">
@@ -198,10 +241,10 @@ const Index = () => {
                 </div>
 
                 {/* Actions */}
-                <div className="flex flex-col gap-2 p-4 flex-1">
+                <div className="flex flex-col gap-3 p-4 flex-1">
                   <span className="text-[9px] font-mono text-muted-foreground tracking-widest mb-1">ACTIONS</span>
                   <TradeHcoreButton />
-                  <ConnectWalletButton />
+                  <MobileWalletButton onBeforeOpen={() => setMobileMenuOpen(false)} />
                   <div className="flex items-center justify-between mt-2 px-1">
                     <span className="text-[10px] font-mono text-muted-foreground">Audio</span>
                     <AudioToggle muted={audio.muted} onToggle={audio.toggleMute} />
