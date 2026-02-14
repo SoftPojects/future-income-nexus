@@ -92,7 +92,7 @@ const HustleAdmin = () => {
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    return token ? { "x-admin-token": token } : {};
   };
 
   const fetchTweets = useCallback(async () => {
