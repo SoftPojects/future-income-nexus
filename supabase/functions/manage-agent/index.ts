@@ -49,14 +49,6 @@ async function verifyAdminToken(req: Request): Promise<boolean> {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // Verify admin token
-  if (!(await verifyAdminToken(req))) {
-    return new Response(
-      JSON.stringify({ error: "Unauthorized" }),
-      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-
   try {
     const sb = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -65,6 +57,19 @@ serve(async (req) => {
 
     const body = await req.json();
     const { action } = body;
+
+    // Public actions (called by frontend without admin auth)
+    const publicActions = ["update_state", "insert_log", "trim_logs", "sync_leaderboard"];
+
+    // Admin-only actions require token verification
+    if (!publicActions.includes(action)) {
+      if (!(await verifyAdminToken(req))) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
 
     if (action === "update_state") {
       const { id, total_hustled, energy_level, agent_status, current_strategy } = body;
