@@ -78,12 +78,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
         throw new Error(data?.error || error?.message || "Verification failed");
       }
 
-      // Record donation for SOL goal tracking
-      await supabase.from("donations").insert({
-        wallet_address: publicKey.toBase58(),
-        amount_sol: amount,
-        tx_signature: signature,
-      } as any);
+      // Donation is now recorded server-side in verify-sol-transaction
 
       setStep("success");
       onFueled(publicKey.toBase58());

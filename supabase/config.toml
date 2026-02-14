@@ -17,3 +17,12 @@ verify_jwt = false
 
 [functions.sol-donation-tweet]
 verify_jwt = false
+
+[functions.manage-agent]
+verify_jwt = false
+
+[functions.admin-tweet-actions]
+verify_jwt = false
+
+[functions.send-global-message]
+verify_jwt = false

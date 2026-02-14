@@ -120,6 +120,14 @@ serve(async (req) => {
       });
     }
 
+    // Record donation for SOL goal tracking
+    const senderAddress = tx.transaction?.message?.accountKeys?.[0]?.pubkey || "unknown";
+    await supabase.from("donations").insert({
+      wallet_address: typeof senderAddress === "string" ? senderAddress : "unknown",
+      amount_sol: amountSol,
+      tx_signature: signature,
+    });
+
     return new Response(
       JSON.stringify({
         success: true,

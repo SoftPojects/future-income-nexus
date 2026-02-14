@@ -61,12 +61,15 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
     setIsSending(true);
 
     try {
-      await supabase.from("global_messages").insert({
-        wallet_address: userInfo.walletAddress,
-        display_name: userInfo.displayName,
-        is_holder: userInfo.isHolder,
-        content: msg,
-      } as any);
+      const { error } = await supabase.functions.invoke("send-global-message", {
+        body: {
+          wallet_address: userInfo.walletAddress,
+          display_name: userInfo.displayName,
+          is_holder: userInfo.isHolder,
+          content: msg,
+        },
+      });
+      if (error) throw error;
     } catch (e) {
       console.error("Failed to send global message:", e);
     } finally {

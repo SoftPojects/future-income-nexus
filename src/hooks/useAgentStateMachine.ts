@@ -187,26 +187,27 @@ export function useAgentStateMachine(): AgentContext {
   useEffect(() => {
     if (!initializedRef.current || !dbStateIdRef.current) return;
     const timeout = setTimeout(() => {
-      supabase
-        .from("agent_state")
-        .update({
+      supabase.functions.invoke("manage-agent", {
+        body: {
+          action: "update_state",
+          id: dbStateIdRef.current,
           total_hustled: totalHustled,
           energy_level: energy,
           agent_status: state,
           current_strategy: strategy.name,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", dbStateIdRef.current!)
-        .then(({ error }) => {
-          if (error) console.error("Failed to persist state:", error);
-        });
+        },
+      }).then(({ error }) => {
+        if (error) console.error("Failed to persist state:", error);
+      });
     }, 2000); // debounce 2s
     return () => clearTimeout(timeout);
   }, [totalHustled, energy, state, strategy]);
 
   // ── Helper: persist a log line to DB ──
   const persistLog = useCallback((message: string) => {
-    supabase.from("agent_logs").insert({ message }).then(({ error }) => {
+    supabase.functions.invoke("manage-agent", {
+      body: { action: "insert_log", message },
+    }).then(({ error }) => {
       if (error) console.error("Failed to persist log:", error);
     });
   }, []);
@@ -349,21 +350,12 @@ export function useAgentStateMachine(): AgentContext {
   // ── Trim old logs in DB periodically ──
   useEffect(() => {
     const interval = setInterval(async () => {
-      const { count } = await supabase
-        .from("agent_logs")
-        .select("id", { count: "exact", head: true });
-      if (count && count > 200) {
-        const { data: oldLogs } = await supabase
-          .from("agent_logs")
-          .select("id")
-          .order("created_at", { ascending: true })
-          .limit(count - 80);
-        if (oldLogs && oldLogs.length > 0) {
-          await supabase
-            .from("agent_logs")
-            .delete()
-            .in("id", oldLogs.map((l) => l.id));
-        }
+      try {
+        await supabase.functions.invoke("manage-agent", {
+          body: { action: "trim_logs" },
+        });
+      } catch (e) {
+        console.error("Failed to trim logs:", e);
       }
     }, 60000);
     return () => clearInterval(interval);
