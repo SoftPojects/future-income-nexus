@@ -1,11 +1,11 @@
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useCustomWalletModal } from "@/hooks/useCustomWalletModal";
 import { motion } from "framer-motion";
 import { Wallet } from "lucide-react";
 
 const ConnectWalletButton = () => {
   const { publicKey, disconnect, connected } = useWallet();
-  const { setVisible } = useWalletModal();
+  const { setVisible } = useCustomWalletModal();
 
   const truncatedAddress = publicKey
     ? `${publicKey.toBase58().slice(0, 4)}...${publicKey.toBase58().slice(-4)}`

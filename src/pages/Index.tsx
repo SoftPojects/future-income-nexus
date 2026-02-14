@@ -4,8 +4,9 @@ import { Activity, Wifi, Twitter, Menu, X, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useCustomWalletModal } from "@/hooks/useCustomWalletModal";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
+import CustomWalletModal from "@/components/CustomWalletModal";
 import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
 import StatCards from "@/components/StatCards";
@@ -28,10 +29,10 @@ import { useHcoreToken } from "@/hooks/useHcoreToken";
 import { useAudioSystem } from "@/hooks/useAudioSystem";
 import { supabase } from "@/integrations/supabase/client";
 
-/** Mobile wallet button that closes the sheet first, then opens wallet modal */
+/** Mobile wallet button that closes the sheet first, then opens custom wallet modal */
 const MobileWalletButton = ({ onBeforeOpen }: { onBeforeOpen: () => void }) => {
   const { publicKey, disconnect, connected } = useWallet();
-  const { setVisible } = useWalletModal();
+  const { setVisible } = useCustomWalletModal();
 
   const truncatedAddress = publicKey
     ? `${publicKey.toBase58().slice(0, 4)}...${publicKey.toBase58().slice(-4)}`
@@ -57,7 +58,6 @@ const MobileWalletButton = ({ onBeforeOpen }: { onBeforeOpen: () => void }) => {
       whileTap={{ scale: 0.97 }}
       onClick={() => {
         onBeforeOpen();
-        // Small delay to let the sheet close before wallet modal opens
         setTimeout(() => setVisible(true), 500);
       }}
     >
@@ -381,6 +381,9 @@ const Index = () => {
         agentState={agent.state}
         strategy={agent.strategy.name}
       />
+
+      {/* Custom wallet modal for mobile-friendly deep linking */}
+      <CustomWalletModal />
     </div>
   );
 };
