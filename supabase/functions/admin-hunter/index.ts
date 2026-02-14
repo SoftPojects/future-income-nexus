@@ -30,8 +30,11 @@ serve(async (req) => {
     const body = await req.json();
     const { action, admin_token } = body;
 
+    console.log("admin-hunter called:", { action, hasToken: !!admin_token, tokenLength: admin_token?.length || 0 });
+
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     if (!(await verifyAdminToken(admin_token || ""))) {
+      console.log("admin-hunter: token verification failed");
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
