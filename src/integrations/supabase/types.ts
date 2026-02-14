@@ -186,6 +186,7 @@ export type Database = {
         Row: {
           content: string
           created_at: string
+          error_message: string | null
           id: string
           posted_at: string | null
           scheduled_at: string
@@ -195,6 +196,7 @@ export type Database = {
         Insert: {
           content: string
           created_at?: string
+          error_message?: string | null
           id?: string
           posted_at?: string | null
           scheduled_at?: string
@@ -204,6 +206,7 @@ export type Database = {
         Update: {
           content?: string
           created_at?: string
+          error_message?: string | null
           id?: string
           posted_at?: string | null
           scheduled_at?: string
