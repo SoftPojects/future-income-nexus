@@ -72,7 +72,7 @@ const HustleAdmin = () => {
   const [apiStatus, setApiStatus] = useState<"unknown" | "connected" | "error">("unknown");
   const [autopilot, setAutopilot] = useState(true);
 
-  const ADMIN_PASS = "hustlecore2026";
+  const [loginLoading, setLoginLoading] = useState(false);
   const nextPost = getNextScheduledPost();
   const countdown = useCountdown(nextPost);
 
@@ -100,11 +100,23 @@ const HustleAdmin = () => {
     }
   }, [authenticated, fetchTweets, fetchMentions]);
 
-  const handleLogin = () => {
-    if (password === ADMIN_PASS) {
-      setAuthenticated(true);
-    } else {
-      toast({ title: "ACCESS DENIED", description: "Wrong password, human.", variant: "destructive" });
+  const handleLogin = async () => {
+    if (!password.trim() || loginLoading) return;
+    setLoginLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-auth", {
+        body: { password },
+      });
+      if (error || !data?.success) {
+        toast({ title: "ACCESS DENIED", description: data?.error || "Wrong password, human.", variant: "destructive" });
+      } else {
+        setAuthenticated(true);
+      }
+    } catch (e) {
+      toast({ title: "ACCESS DENIED", description: "Authentication failed.", variant: "destructive" });
+    } finally {
+      setLoginLoading(false);
+      setPassword("");
     }
   };
 

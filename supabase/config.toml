@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.send-global-message]
 verify_jwt = false
+
+[functions.admin-auth]
+verify_jwt = false
