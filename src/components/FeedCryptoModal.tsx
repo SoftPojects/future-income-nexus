@@ -31,6 +31,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
   const [solAmount, setSolAmount] = useState(DEFAULT_SOL_AMOUNT.toString());
   const [errorMsg, setErrorMsg] = useState("");
   const [txSignature, setTxSignature] = useState("");
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
 
   const resetAndClose = () => {
     setStep("amount");
@@ -42,7 +43,10 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
 
   const handleFeed = async () => {
     if (!connected || !publicKey) {
+      setWalletModalOpen(true);
       setVisible(true);
+      // Wait for connection then reset flag
+      setTimeout(() => setWalletModalOpen(false), 1000);
       return;
     }
 
@@ -95,7 +99,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -103,7 +107,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
           {/* Backdrop — only closeable during amount/error steps */}
           <motion.div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={step === "amount" || step === "error" ? resetAndClose : undefined}
+            onClick={!walletModalOpen && (step === "amount" || step === "error") ? resetAndClose : undefined}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
