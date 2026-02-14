@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Loader2, Crown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
+import { useSmartScroll } from "@/hooks/useSmartScroll";
 
 interface GlobalMessage {
   id: string;
@@ -18,13 +19,11 @@ interface GlobalChatProps {
 }
 
 const GlobalChat = ({ userInfo }: GlobalChatProps) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const [messages, setMessages] = useState<GlobalMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const { scrollRef, handleScroll } = useSmartScroll([messages]);
 
-  // Load history + subscribe to realtime
   useEffect(() => {
     const loadMessages = async () => {
       const { data } = await supabase
@@ -44,7 +43,6 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
         (payload) => {
           const msg = payload.new as GlobalMessage;
           setMessages((prev) => {
-            // Avoid duplicates
             if (prev.some((m) => m.id === msg.id)) return prev;
             const updated = [...prev, msg];
             return updated.length > 200 ? updated.slice(-200) : updated;
@@ -53,16 +51,8 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, []);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
 
   const handleSend = async () => {
     const msg = inputValue.trim();
@@ -91,6 +81,13 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
     }
   };
 
+  const isOwnMessage = (msg: GlobalMessage) => {
+    if (userInfo.walletAddress && msg.wallet_address) {
+      return msg.wallet_address === userInfo.walletAddress;
+    }
+    return msg.display_name === userInfo.displayName;
+  };
+
   const getNameColor = (msg: GlobalMessage) => {
     if (msg.is_holder) return "text-yellow-400";
     if (msg.wallet_address) return "text-neon-cyan";
@@ -101,6 +98,7 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
     <div className="flex flex-col h-full">
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="flex-1 overflow-y-auto p-4 space-y-2 text-xs"
         style={{ maxHeight: "350px" }}
       >
@@ -125,8 +123,11 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
                 {msg.display_name}
                 {msg.is_holder && (
                   <span className="ml-1 text-[8px] bg-yellow-400/20 text-yellow-400 border border-yellow-400/40 rounded px-1 py-0.5 font-bold">
-                    VIP HOLDER
+                    VIP
                   </span>
+                )}
+                {isOwnMessage(msg) && (
+                  <span className="ml-1 text-[8px] text-muted-foreground">(You)</span>
                 )}
               </span>
               <span className="text-muted-foreground mx-1">:</span>
@@ -145,7 +146,6 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
       <div className="border-t border-border px-3 py-2 flex items-center gap-2">
         <span className="text-neon-cyan font-mono text-xs">&gt;</span>
         <input
-          ref={inputRef}
           type="text"
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}

@@ -80,6 +80,30 @@ export type Database = {
         }
         Relationships: []
       }
+      donations: {
+        Row: {
+          amount_sol: number
+          created_at: string
+          id: string
+          tx_signature: string | null
+          wallet_address: string
+        }
+        Insert: {
+          amount_sol: number
+          created_at?: string
+          id?: string
+          tx_signature?: string | null
+          wallet_address: string
+        }
+        Update: {
+          amount_sol?: number
+          created_at?: string
+          id?: string
+          tx_signature?: string | null
+          wallet_address?: string
+        }
+        Relationships: []
+      }
       global_messages: {
         Row: {
           content: string

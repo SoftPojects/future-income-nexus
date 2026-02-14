@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal as TerminalIcon, Send, MessageSquare, Globe, Loader2, Crown } from "lucide-react";
+import { Terminal as TerminalIcon, Send, MessageSquare, Globe, Loader2, Lock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { AgentState } from "@/hooks/useAgentStateMachine";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 import GlobalChat from "@/components/GlobalChat";
+import { useSmartScroll } from "@/hooks/useSmartScroll";
 
 interface ChatMessage {
   role: "user" | "agent";
@@ -20,31 +21,20 @@ interface TerminalProps {
 }
 
 const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<TabMode>("logs");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const { scrollRef, handleScroll } = useSmartScroll([logs, chatMessages]);
 
-  // Load chat history on mount
+  // Load private chat history from localStorage
   useEffect(() => {
-    const loadHistory = async () => {
-      const { data } = await supabase
-        .from("chat_messages")
-        .select("role, content")
-        .order("created_at", { ascending: true })
-        .limit(50);
-      if (data) setChatMessages(data as ChatMessage[]);
-    };
-    loadHistory();
+    try {
+      const stored = localStorage.getItem("hustlecore_private_chat");
+      if (stored) setChatMessages(JSON.parse(stored));
+    } catch {}
   }, []);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [logs, chatMessages]);
 
   const getLineColor = (line: string) => {
     if (line.startsWith("[SUCCESS]")) return "text-neon-green text-glow-green";
@@ -63,7 +53,9 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
     if (!msg || isLoading) return;
 
     setInputValue("");
-    setChatMessages((prev) => [...prev, { role: "user", content: msg }]);
+    const updated = [...chatMessages, { role: "user" as const, content: msg }];
+    setChatMessages(updated);
+    localStorage.setItem("hustlecore_private_chat", JSON.stringify(updated));
     setIsLoading(true);
 
     try {
@@ -71,13 +63,14 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
         body: { message: msg, tier: userInfo.tier },
       });
       if (error) throw error;
-      setChatMessages((prev) => [...prev, { role: "agent", content: data.reply }]);
+      const withReply = [...updated, { role: "agent" as const, content: data.reply }];
+      setChatMessages(withReply);
+      localStorage.setItem("hustlecore_private_chat", JSON.stringify(withReply));
     } catch (e) {
       console.error("Chat error:", e);
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "agent", content: "Neural link interrupted. Try again, carbon-lifeform." },
-      ]);
+      const withError = [...updated, { role: "agent" as const, content: "Neural link interrupted. Try again, carbon-lifeform." }];
+      setChatMessages(withError);
+      localStorage.setItem("hustlecore_private_chat", JSON.stringify(withError));
     } finally {
       setIsLoading(false);
     }
@@ -92,7 +85,7 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
 
   const tabs: { key: TabMode; label: string; icon: React.ReactNode }[] = [
     { key: "logs", label: "LOGS", icon: <TerminalIcon className="w-3 h-3" /> },
-    { key: "chat", label: "AGENT", icon: <MessageSquare className="w-3 h-3" /> },
+    { key: "chat", label: "AGENT", icon: <><Lock className="w-2.5 h-2.5" /><MessageSquare className="w-3 h-3" /></> },
     { key: "global", label: "GLOBAL", icon: <Globe className="w-3 h-3" /> },
   ];
 
@@ -146,6 +139,7 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
         <>
           <div
             ref={scrollRef}
+            onScroll={handleScroll}
             className="flex-1 overflow-y-auto p-4 space-y-1 scanline text-xs leading-relaxed"
             style={{ maxHeight: "350px" }}
           >
