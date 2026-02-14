@@ -112,6 +112,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
           {/* Modal */}
           <motion.div
             className="glass glow-magenta rounded-xl p-8 max-w-md w-full relative z-10 border border-neon-magenta/30"
+            onClick={(e) => e.stopPropagation()}
             initial={{ scale: 0.85, opacity: 0, y: 30 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.85, opacity: 0, y: 30 }}
