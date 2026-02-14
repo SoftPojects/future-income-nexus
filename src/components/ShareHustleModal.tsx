@@ -15,7 +15,7 @@ interface ShareHustleModalProps {
 const ShareHustleModal = ({ open, onClose, totalHustled, energy, agentState, strategy }: ShareHustleModalProps) => {
   const cardRef = useRef<HTMLDivElement>(null);
 
-  const shareText = `My @HustleCore agent is out-earning me 🤖⚡\n\n💰 Total Hustled: $${totalHustled.toFixed(2)}\n🔋 Energy: ${energy}%\n🧠 Strategy: ${strategy}\n📊 State: ${agentState.toUpperCase()}\n\nFuel his ego here: ${window.location.href}`;
+  const shareText = `My @hustlecore_ai agent is out-earning me 🤖⚡\n\n💰 Total Hustled: $${totalHustled.toFixed(2)}\n🔋 Energy: ${energy}%\n🧠 Strategy: ${strategy}\n📊 State: ${agentState.toUpperCase()}\n\nFuel his ego here: https://hustlecore.app`;
 
   const handleShareX = () => {
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
@@ -59,12 +59,12 @@ const ShareHustleModal = ({ open, onClose, totalHustled, energy, agentState, str
       ctx.shadowColor = "#00ffff";
       ctx.shadowBlur = 20;
       ctx.textAlign = "center";
-      ctx.fillText("HUSTLECORE", 300, 60);
+      ctx.fillText("HUSTLECORE AI", 300, 60);
 
       ctx.shadowBlur = 0;
       ctx.font = "12px 'JetBrains Mono', monospace";
       ctx.fillStyle = "#666";
-      ctx.fillText("AI AGENT DASHBOARD — 2026", 300, 85);
+      ctx.fillText("AUTONOMOUS AI AGENT — hustlecore.app", 300, 85);
 
       // Stats
       ctx.textAlign = "left";

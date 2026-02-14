@@ -7,7 +7,8 @@ import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
 import StatCards from "@/components/StatCards";
 import ActionButtons from "@/components/ActionButtons";
-import Leaderboard from "@/components/Leaderboard";
+import TopSupporters from "@/components/TopSupporters";
+import RevealedTributes from "@/components/RevealedTributes";
 import FeedCryptoModal from "@/components/FeedCryptoModal";
 import ShareHustleModal from "@/components/ShareHustleModal";
 import ManifestoSection from "@/components/ManifestoSection";
@@ -169,7 +170,6 @@ const Index = () => {
 
         <ActionButtons
           agentState={agent.state}
-          onStateChange={agent.setState}
           onFeedCrypto={() => setFeedOpen(true)}
           onShareHustle={() => setShareOpen(true)}
         />
@@ -196,10 +196,10 @@ const Index = () => {
 
         {showLounge && <HoldersLounge userInfo={userInfo} />}
 
-        <Leaderboard
-          playerBalance={agent.totalHustled}
-          sassyMessage={agent.sassyMessage}
-        />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <TopSupporters />
+          <RevealedTributes />
+        </div>
 
         <ManifestoSection />
 
@@ -211,17 +211,32 @@ const Index = () => {
         >
           <span>SYSTEM UPTIME: 47h 23m 11s</span>
           {lastTweetTime && (
-            <span className="text-neon-cyan flex items-center gap-1">
+            <a
+              href="https://x.com/hustlecore_ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-neon-cyan flex items-center gap-1 hover:text-neon-cyan/80 transition-colors cursor-pointer"
+            >
               <Twitter className="w-3 h-3" />
               LAST X TRANSMISSION: {new Date(lastTweetTime).toLocaleString()}
-            </span>
+            </a>
+          )}
+          {!lastTweetTime && (
+            <a
+              href="https://x.com/hustlecore_ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-neon-cyan flex items-center gap-1 hover:text-neon-cyan/80 transition-colors cursor-pointer"
+            >
+              <Twitter className="w-3 h-3" />
+              FOLLOW ON X
+            </a>
           )}
           {agent.lastBenefactor && (
             <span className="text-neon-magenta">
               LAST BENEFACTOR: {agent.lastBenefactor.slice(0, 4)}...{agent.lastBenefactor.slice(-4)}
             </span>
           )}
-          <span>TASKS COMPLETED: 1,247</span>
           <span className="text-neon-cyan">LATENCY: 12ms</span>
         </motion.div>
       </main>
