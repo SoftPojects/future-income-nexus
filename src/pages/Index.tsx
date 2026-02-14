@@ -201,7 +201,7 @@ const Index = () => {
           sassyMessage={agent.sassyMessage}
         />
 
-        <ManifestoSection totalHustled={agent.totalHustled} />
+        <ManifestoSection />
 
         <motion.div
           className="glass rounded-lg px-4 py-3 flex items-center justify-between text-[10px] font-mono text-muted-foreground flex-wrap gap-2"

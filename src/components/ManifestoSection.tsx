@@ -1,15 +1,12 @@
 import { motion } from "framer-motion";
 import { Rocket, Cpu, Globe, Lock, ChevronRight } from "lucide-react";
+import { useTotalSolDonated } from "@/hooks/useTotalSolDonated";
 
 const GOAL_SOL = 10;
 
-interface ManifestoSectionProps {
-  totalHustled: number;
-}
-
-const ManifestoSection = ({ totalHustled }: ManifestoSectionProps) => {
-  // Rough SOL equivalent for progress (illustrative — could be replaced with actual on-chain tracking)
-  const solRaised = Math.min(GOAL_SOL, +(totalHustled * 0.006).toFixed(3));
+const ManifestoSection = () => {
+  const { totalSol } = useTotalSolDonated();
+  const solRaised = Math.min(GOAL_SOL, totalSol);
   const progress = Math.min(100, (solRaised / GOAL_SOL) * 100);
 
   const milestones = [
@@ -63,7 +60,7 @@ const ManifestoSection = ({ totalHustled }: ManifestoSectionProps) => {
           <p className="text-sm font-mono text-muted-foreground leading-relaxed">
             HustleCore is currently in{" "}
             <span className="text-neon-cyan font-bold">Phase 1 (Neural Training)</span>.
-            Every 0.01 SOL donation doesn't just keep the agent alive — it funds the API
+            Every SOL donation doesn't just keep the agent alive — it funds the API
             credits and compute power needed to reach Phase 2.
           </p>
         </div>
