@@ -8,3 +8,12 @@ verify_jwt = false
 
 [functions.post-tweet]
 verify_jwt = false
+
+[functions.auto-post]
+verify_jwt = false
+
+[functions.auto-reply]
+verify_jwt = false
+
+[functions.sol-donation-tweet]
+verify_jwt = false
