@@ -26,9 +26,33 @@ serve(async (req) => {
       throw new Error("Message too long (max 500 chars)");
     }
 
+    // Reject suspicious patterns (defense-in-depth)
+    if (/<script|javascript:|onerror=|onclick=|onload=/i.test(content)) {
+      throw new Error("Invalid message content");
+    }
+
+    // Validate display_name
+    const safeName = (typeof display_name === "string" ? display_name.trim().slice(0, 30) : "Guest") || "Guest";
+
+    // Rate limit: max 5 messages per minute per wallet/IP
+    const rateLimitKey = wallet_address || req.headers.get("x-forwarded-for") || "unknown";
+    const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+    const { data: recentMsgs } = await sb
+      .from("global_messages")
+      .select("id")
+      .eq("wallet_address", rateLimitKey)
+      .gte("created_at", oneMinuteAgo);
+
+    if (recentMsgs && recentMsgs.length >= 5) {
+      return new Response(
+        JSON.stringify({ error: "Rate limit exceeded: max 5 messages per minute" }),
+        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const { error } = await sb.from("global_messages").insert({
       wallet_address: wallet_address || null,
-      display_name: display_name || "Guest",
+      display_name: safeName,
       content: content.trim().slice(0, 500),
       is_holder: !!is_holder,
     });
