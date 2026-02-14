@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.admin-hunter]
 verify_jwt = false
+
+[functions.post-pending-tweets]
+verify_jwt = false

@@ -1,0 +1,1 @@
+ALTER TABLE public.tweet_queue ADD COLUMN IF NOT EXISTS error_message text;

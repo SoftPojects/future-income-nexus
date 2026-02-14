@@ -18,6 +18,7 @@ interface TweetQueueItem {
   type: string;
   created_at: string;
   posted_at: string | null;
+  error_message?: string | null;
 }
 
 interface XMention {
@@ -78,6 +79,7 @@ const HustleAdmin = () => {
   const [generating, setGenerating] = useState(false);
   const [posting, setPosting] = useState(false);
   const [apiStatus, setApiStatus] = useState<"unknown" | "connected" | "error">("unknown");
+  const [syncing, setSyncing] = useState(false);
   const [autopilot, setAutopilot] = useState(true);
 
   // Hunter state
@@ -227,6 +229,23 @@ const HustleAdmin = () => {
     }
   };
 
+  const handleForceSync = async () => {
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("post-pending-tweets", { body: {} });
+      if (error) throw error;
+      toast({
+        title: "FORCE SYNC COMPLETE",
+        description: `Posted: ${data?.posted || 0}, Rescheduled: ${data?.rescheduled || 0}${data?.error ? `, Error: ${data.error}` : ""}`,
+      });
+      fetchTweets();
+    } catch (e) {
+      toast({ title: "Sync failed", description: String(e), variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   useEffect(() => {
     if (authenticated) checkApiStatus();
   }, [authenticated]);
@@ -322,6 +341,7 @@ const HustleAdmin = () => {
 
   const pendingTweets = tweets.filter((t) => t.status === "pending");
   const postedTweets = tweets.filter((t) => t.status === "posted");
+  const errorTweets = tweets.filter((t) => t.status === "error");
 
   return (
     <div className="min-h-screen bg-background grid-bg">
@@ -410,17 +430,21 @@ const HustleAdmin = () => {
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">
                 PENDING ({pendingTweets.length})
               </h2>
-              <div className="flex gap-2">
-                {!autopilot && (
-                  <Button onClick={handleGenerateNow} disabled={generating} size="sm">
+                <div className="flex gap-2">
+                  <Button onClick={handleForceSync} disabled={syncing} size="sm" variant="destructive">
                     <Zap className="w-4 h-4 mr-1" />
-                    {generating ? "Generating..." : "Generate Now"}
+                    {syncing ? "Syncing..." : "FORCE SYNC"}
                   </Button>
-                )}
-                <Button onClick={fetchTweets} variant="outline" size="sm">
-                  <RefreshCw className="w-4 h-4" />
-                </Button>
-              </div>
+                  {!autopilot && (
+                    <Button onClick={handleGenerateNow} disabled={generating} size="sm">
+                      <Zap className="w-4 h-4 mr-1" />
+                      {generating ? "Generating..." : "Generate Now"}
+                    </Button>
+                  )}
+                  <Button onClick={fetchTweets} variant="outline" size="sm">
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
+                </div>
             </div>
 
             {autopilot && pendingTweets.length === 0 && (
@@ -490,6 +514,40 @@ const HustleAdmin = () => {
                 </CardContent>
               </Card>
             ))}
+
+            {errorTweets.length > 0 && (
+              <>
+                <h2 className="font-display text-sm tracking-widest text-destructive pt-4">
+                  ERRORS ({errorTweets.length})
+                </h2>
+                {errorTweets.map((tweet) => (
+                  <Card key={tweet.id} className="bg-card border-destructive/40">
+                    <CardContent className="p-4 space-y-2">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                        <p className="text-foreground text-sm font-mono">{tweet.content}</p>
+                      </div>
+                      {tweet.error_message && (
+                        <p className="text-[10px] font-mono text-destructive bg-destructive/10 rounded px-2 py-1">
+                          {tweet.error_message}
+                        </p>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-muted-foreground uppercase">{tweet.type}</span>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="ghost" onClick={() => handlePostNow(tweet.id)}>
+                            <Send className="w-3 h-3" /> Retry
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => handleDelete(tweet.id)}>
+                            <Trash2 className="w-3 h-3 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </>
+            )}
 
             {postedTweets.length > 0 && (
               <>
