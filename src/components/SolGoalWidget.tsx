@@ -27,17 +27,17 @@ const SolGoalWidget = () => {
         </span>
       </div>
 
-      <div className="relative">
-        <Progress
-          value={progress}
-          className="h-3 bg-muted border border-border"
+      <div className="relative w-full h-3 rounded-full bg-muted border border-border overflow-hidden">
+        <motion.div
+          className="h-full rounded-full"
+          style={{
+            background: "linear-gradient(90deg, hsl(180 100% 50% / 0.8), hsl(300 100% 50% / 0.8))",
+            boxShadow: "0 0 10px hsl(180 100% 50% / 0.4)",
+          }}
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.max(1, progress)}%` }}
+          transition={{ duration: 1, ease: "easeOut" }}
         />
-        <div
-          className="absolute inset-0 h-3 rounded-full overflow-hidden"
-          style={{ width: `${progress}%` }}
-        >
-          <div className="h-full bg-gradient-to-r from-neon-cyan to-neon-magenta animate-pulse-neon rounded-full" />
-        </div>
       </div>
 
       <p className="text-[9px] font-mono text-muted-foreground mt-2 text-center">
