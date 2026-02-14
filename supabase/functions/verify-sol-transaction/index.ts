@@ -120,13 +120,23 @@ serve(async (req) => {
       });
     }
 
-    // Record donation for SOL goal tracking
+    // Record donation for SOL goal tracking — use on-chain sender pubkey
     const senderAddress = tx.transaction?.message?.accountKeys?.[0]?.pubkey || "unknown";
+    const verifiedSender = typeof senderAddress === "string" ? senderAddress : "unknown";
     await supabase.from("donations").insert({
-      wallet_address: typeof senderAddress === "string" ? senderAddress : "unknown",
+      wallet_address: verifiedSender,
       amount_sol: amountSol,
       tx_signature: signature,
     });
+
+    // Trigger donation tweet with the verified on-chain sender address
+    try {
+      await supabase.functions.invoke("sol-donation-tweet", {
+        body: { amount: amountSol, walletAddress: verifiedSender },
+      });
+    } catch (e) {
+      console.error("Donation tweet trigger failed:", e);
+    }
 
     return new Response(
       JSON.stringify({

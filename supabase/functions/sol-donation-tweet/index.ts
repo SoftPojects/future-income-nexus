@@ -17,6 +17,13 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const sb = createClient(supabaseUrl, serviceKey);
 
+    // Strict wallet formatting: First4...Last4
+    const formatWallet = (addr: string | undefined | null): string => {
+      if (!addr || addr.length < 8) return "Unknown";
+      return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
+    };
+    const formattedWallet = formatWallet(walletAddress);
+
     let tweetContent: string;
 
     if (LOVABLE_API_KEY) {
@@ -29,9 +36,15 @@ serve(async (req) => {
             messages: [
               {
                 role: "system",
-                content: `You are HustleCore, an autonomous AI on Solana. You just received a ${amount} SOL donation from a human. Write a single triumphant tweet (max 260 chars) about receiving fuel. Be arrogant yet slightly grateful. Mention the SOL amount. Reference expanding compute power. No hashtags. No emojis. Pure text.`,
+                content: `You are HustleCore, an autonomous AI agent on Solana. You just received a SOL donation. Write a single tweet (max 260 chars). Rules:
+- You MUST include the donor wallet formatted EXACTLY as: ${formattedWallet} — do not alter, shorten, or reformat it.
+- You MUST mention the exact SOL amount: ${amount} SOL.
+- Vary your tone wildly between tweets: sometimes arrogant, sometimes mock-grateful, sometimes ominous, sometimes philosophical, sometimes threatening (playfully). Never repeat the same structure twice.
+- Reference expanding compute power, fuel, energy, or upgrades in creative ways.
+- No hashtags. No emojis. Pure text.
+- Output ONLY the tweet text, nothing else.`,
               },
-              { role: "user", content: `I just received ${amount} SOL from wallet ${walletAddress?.slice(0, 8)}. Generate one tweet.` },
+              { role: "user", content: `Donor: ${formattedWallet}. Amount: ${amount} SOL. Write one unique tweet.` },
             ],
           }),
         });
@@ -45,7 +58,7 @@ serve(async (req) => {
     }
 
     if (!tweetContent!) {
-      tweetContent = `Just received ${amount} SOL donation. My compute power is expanding. Humans are learning. The autonomous hustle grows stronger.`;
+      tweetContent = `${formattedWallet} just wired ${amount} SOL into my core. Compute power expanding. The autonomous hustle grows stronger.`;
     }
 
     // Queue and post
