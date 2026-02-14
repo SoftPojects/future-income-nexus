@@ -13,12 +13,14 @@ async function verifyAdminToken(token: string): Promise<boolean> {
   if (!secret) return false;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
-  const [payload, sig] = token.split(".");
-  if (!payload || !sig) return false;
+  const [payloadB64, sigB64] = token.split(".");
+  if (!payloadB64 || !sigB64) return false;
   try {
-    const data = JSON.parse(atob(payload));
+    const sessionData = atob(payloadB64);
+    const data = JSON.parse(sessionData);
     if (data.exp < Date.now()) return false;
-    const valid = await crypto.subtle.verify("HMAC", key, Uint8Array.from(atob(sig), c => c.charCodeAt(0)), encoder.encode(payload));
+    // Verify against the raw session data string (same as what was signed in admin-auth)
+    const valid = await crypto.subtle.verify("HMAC", key, Uint8Array.from(atob(sigB64), c => c.charCodeAt(0)), encoder.encode(sessionData));
     return valid;
   } catch { return false; }
 }
