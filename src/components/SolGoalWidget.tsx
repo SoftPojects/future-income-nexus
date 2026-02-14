@@ -1,17 +1,14 @@
 import { motion } from "framer-motion";
 import { Target, Zap } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
-
-interface SolGoalWidgetProps {
-  totalHustled: number;
-}
+import { useTotalSolDonated } from "@/hooks/useTotalSolDonated";
 
 const GOAL_SOL = 10;
 
-const SolGoalWidget = ({ totalHustled }: SolGoalWidgetProps) => {
-  // Convert USD-like total to a rough SOL equivalent for display
-  // This is a display-only widget — the "goal" is 10 SOL toward Phase 2
-  const progress = Math.min(100, (totalHustled / GOAL_SOL) * 100);
+const SolGoalWidget = () => {
+  const { totalSol } = useTotalSolDonated();
+  const progress = Math.min(100, (totalSol / GOAL_SOL) * 100);
+  const goalReached = totalSol >= GOAL_SOL;
 
   return (
     <motion.div
@@ -26,7 +23,7 @@ const SolGoalWidget = ({ totalHustled }: SolGoalWidgetProps) => {
         </span>
         <Zap className="w-3 h-3 text-yellow-400 ml-auto" />
         <span className="font-mono text-[10px] text-yellow-400">
-          {totalHustled.toFixed(2)} / {GOAL_SOL} SOL
+          {totalSol.toFixed(2)} / {GOAL_SOL} SOL
         </span>
       </div>
 
@@ -44,9 +41,9 @@ const SolGoalWidget = ({ totalHustled }: SolGoalWidgetProps) => {
       </div>
 
       <p className="text-[9px] font-mono text-muted-foreground mt-2 text-center">
-        {progress < 100
-          ? `${(GOAL_SOL - totalHustled).toFixed(2)} SOL remaining to unlock Real-World API Integration`
-          : "🎉 GOAL REACHED — Phase 2 unlocked!"}
+        {goalReached
+          ? "🎉 GOAL REACHED — Phase 2 unlocked!"
+          : `${(GOAL_SOL - totalSol).toFixed(2)} SOL remaining to unlock Real-World API Integration`}
       </p>
     </motion.div>
   );
