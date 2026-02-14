@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,14 @@ interface XMention {
   author_handle: string;
   content: string;
   replied: boolean;
+  created_at: string;
+}
+
+interface TargetAgent {
+  id: string;
+  x_handle: string;
+  last_roasted_at: string | null;
+  is_active: boolean;
   created_at: string;
 }
 
@@ -72,9 +80,20 @@ const HustleAdmin = () => {
   const [apiStatus, setApiStatus] = useState<"unknown" | "connected" | "error">("unknown");
   const [autopilot, setAutopilot] = useState(true);
 
+  // Hunter state
+  const [targets, setTargets] = useState<TargetAgent[]>([]);
+  const [newHandle, setNewHandle] = useState("");
+  const [addingTarget, setAddingTarget] = useState(false);
+  const [roastingId, setRoastingId] = useState<string | null>(null);
+
   const [loginLoading, setLoginLoading] = useState(false);
   const nextPost = getNextScheduledPost();
   const countdown = useCountdown(nextPost);
+
+  const getAdminHeaders = () => {
+    const token = sessionStorage.getItem("admin_token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   const fetchTweets = useCallback(async () => {
     const { data } = await supabase
@@ -93,17 +112,21 @@ const HustleAdmin = () => {
     if (data) setMentions(data);
   }, []);
 
+  const fetchTargets = useCallback(async () => {
+    const { data, error } = await supabase.functions.invoke("admin-hunter", {
+      body: { action: "list" },
+      headers: getAdminHeaders(),
+    });
+    if (!error && data?.targets) setTargets(data.targets);
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
       fetchMentions();
+      fetchTargets();
     }
-  }, [authenticated, fetchTweets, fetchMentions]);
-
-  const getAdminHeaders = () => {
-    const token = sessionStorage.getItem("admin_token");
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  };
+  }, [authenticated, fetchTweets, fetchMentions, fetchTargets]);
 
   const handleLogin = async () => {
     if (!password.trim() || loginLoading) return;
@@ -207,6 +230,65 @@ const HustleAdmin = () => {
     if (authenticated) checkApiStatus();
   }, [authenticated]);
 
+  // Hunter actions
+  const handleAddTarget = async () => {
+    if (!newHandle.trim()) return;
+    setAddingTarget(true);
+    try {
+      const { error } = await supabase.functions.invoke("admin-hunter", {
+        body: { action: "add", x_handle: newHandle.trim() },
+        headers: getAdminHeaders(),
+      });
+      if (error) throw error;
+      setNewHandle("");
+      toast({ title: "TARGET ACQUIRED", description: `@${newHandle.trim()} added to kill list.` });
+      fetchTargets();
+    } catch (e) {
+      toast({ title: "Failed", description: String(e), variant: "destructive" });
+    } finally {
+      setAddingTarget(false);
+    }
+  };
+
+  const handleRoastNow = async (id: string) => {
+    setRoastingId(id);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-hunter", {
+        body: { action: "roast", id },
+        headers: getAdminHeaders(),
+      });
+      if (error) throw error;
+      toast({ title: "ROAST DEPLOYED", description: data?.content?.slice(0, 80) + "..." });
+      fetchTargets();
+      fetchTweets();
+    } catch (e) {
+      toast({ title: "Roast failed", description: String(e), variant: "destructive" });
+    } finally {
+      setRoastingId(null);
+    }
+  };
+
+  const handleDeleteTarget = async (id: string) => {
+    await supabase.functions.invoke("admin-hunter", {
+      body: { action: "delete", id },
+      headers: getAdminHeaders(),
+    });
+    fetchTargets();
+  };
+
+  const getCooldownStatus = (lastRoastedAt: string | null) => {
+    if (!lastRoastedAt) return { onCooldown: false, text: "READY" };
+    const diff = Date.now() - new Date(lastRoastedAt).getTime();
+    const hours48 = 48 * 60 * 60 * 1000;
+    if (diff < hours48) {
+      const remaining = hours48 - diff;
+      const h = Math.floor(remaining / 3600000);
+      const m = Math.floor((remaining % 3600000) / 60000);
+      return { onCooldown: true, text: `${h}h ${m}m` };
+    }
+    return { onCooldown: false, text: "READY" };
+  };
+
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-background grid-bg flex items-center justify-center">
@@ -294,7 +376,7 @@ const HustleAdmin = () => {
               </h3>
               <p className="text-[10px] font-mono text-muted-foreground">
                 {autopilot
-                  ? "Auto-posting every 4h • Auto-replying every 15m • Fully autonomous"
+                  ? "Auto-posting every 4h • Auto-replying every 15m • Hunter mode active"
                   : "Manual mode — generate and post tweets yourself"}
               </p>
             </div>
@@ -317,6 +399,9 @@ const HustleAdmin = () => {
           <TabsList className="bg-muted border border-border">
             <TabsTrigger value="queue">Tweet Queue</TabsTrigger>
             <TabsTrigger value="manual">Manual Post</TabsTrigger>
+            <TabsTrigger value="hunter">
+              <Crosshair className="w-3 h-3 mr-1" /> Hunter
+            </TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="status">System</TabsTrigger>
           </TabsList>
@@ -373,10 +458,15 @@ const HustleAdmin = () => {
                     </div>
                   ) : (
                     <>
-                      <p className="text-foreground text-sm font-mono">{tweet.content}</p>
+                      <div className="flex items-start gap-2">
+                        {tweet.type === "hunter" && (
+                          <Crosshair className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                        )}
+                        <p className="text-foreground text-sm font-mono">{tweet.content}</p>
+                      </div>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                          <span className="uppercase">{tweet.type}</span>
+                          <span className={`uppercase ${tweet.type === "hunter" ? "text-destructive" : ""}`}>{tweet.type}</span>
                           <span>•</span>
                           <span>{new Date(tweet.created_at).toLocaleString()}</span>
                           <span className="text-xs text-muted-foreground">
@@ -411,7 +501,10 @@ const HustleAdmin = () => {
                 {postedTweets.slice(0, 10).map((tweet) => (
                   <Card key={tweet.id} className="bg-card border-border opacity-60">
                     <CardContent className="p-4">
-                      <p className="text-foreground text-sm font-mono">{tweet.content}</p>
+                      <div className="flex items-start gap-2">
+                        {tweet.type === "hunter" && <Crosshair className="w-3 h-3 text-destructive mt-0.5 shrink-0" />}
+                        <p className="text-foreground text-sm font-mono">{tweet.content}</p>
+                      </div>
                       <div className="text-[10px] text-muted-foreground mt-2 flex items-center gap-2">
                         <CheckCircle className="w-3 h-3 text-neon-green" />
                         <span>Posted {tweet.posted_at ? new Date(tweet.posted_at).toLocaleString() : "—"}</span>
@@ -446,6 +539,99 @@ const HustleAdmin = () => {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* HUNTER TAB - TARGET ACQUISITION */}
+          <TabsContent value="hunter" className="space-y-4">
+            <Card className="bg-card border-destructive/30">
+              <CardHeader>
+                <CardTitle className="text-sm font-display tracking-widest flex items-center gap-2 text-destructive">
+                  <Crosshair className="w-4 h-4" />
+                  TARGET ACQUISITION
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="@target_agent_handle"
+                    value={newHandle}
+                    onChange={(e) => setNewHandle(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddTarget()}
+                    className="bg-muted border-border text-foreground font-mono"
+                  />
+                  <Button onClick={handleAddTarget} disabled={addingTarget || !newHandle.trim()} size="sm">
+                    <Plus className="w-4 h-4 mr-1" />
+                    {addingTarget ? "Adding..." : "Add Target"}
+                  </Button>
+                </div>
+
+                <p className="text-[10px] font-mono text-muted-foreground">
+                  Active targets will be randomly roasted during auto-posts (50% chance per cycle). 48h cooldown between roasts.
+                </p>
+              </CardContent>
+            </Card>
+
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground">
+                ACTIVE TARGETS ({targets.filter(t => t.is_active).length})
+              </h2>
+              <Button onClick={fetchTargets} variant="outline" size="sm">
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {targets.length === 0 && (
+              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
+                <Crosshair className="w-8 h-8 mx-auto mb-3 text-destructive opacity-50" />
+                No targets acquired. Add AI agent handles above to start hunting.
+              </div>
+            )}
+
+            {targets.map((target) => {
+              const cooldown = getCooldownStatus(target.last_roasted_at);
+              return (
+                <Card key={target.id} className={`bg-card ${target.is_active ? "border-destructive/30" : "border-border opacity-50"}`}>
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Crosshair className={`w-4 h-4 ${target.is_active ? "text-destructive" : "text-muted-foreground"}`} />
+                        <div>
+                          <span className="text-foreground font-mono text-sm font-bold">@{target.x_handle}</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
+                              cooldown.onCooldown
+                                ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                                : "bg-neon-green/10 text-neon-green border border-neon-green/20"
+                            }`}>
+                              {cooldown.onCooldown ? `COOLDOWN: ${cooldown.text}` : cooldown.text}
+                            </span>
+                            {target.last_roasted_at && (
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                Last roasted: {new Date(target.last_roasted_at).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          disabled={cooldown.onCooldown || roastingId === target.id || !target.is_active}
+                          onClick={() => handleRoastNow(target.id)}
+                        >
+                          <Zap className="w-3 h-3 mr-1" />
+                          {roastingId === target.id ? "Roasting..." : "Roast Now"}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteTarget(target.id)}>
+                          <Trash2 className="w-3 h-3 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </TabsContent>
 
           {/* MENTIONS TAB */}
@@ -526,8 +712,8 @@ const HustleAdmin = () => {
                     <span className="text-foreground font-mono text-2xl">{postedTweets.length}</span>
                   </div>
                   <div className="glass rounded-lg p-4">
-                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">MENTIONS TRACKED</p>
-                    <span className="text-foreground font-mono text-2xl">{mentions.length}</span>
+                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">HUNTER TARGETS</p>
+                    <span className="text-foreground font-mono text-2xl">{targets.filter(t => t.is_active).length}</span>
                   </div>
                   <div className="glass rounded-lg p-4">
                     <p className="text-[10px] text-muted-foreground tracking-widest mb-1">NEXT AUTO-POST</p>

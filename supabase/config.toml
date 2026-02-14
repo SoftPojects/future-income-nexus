@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.admin-auth]
 verify_jwt = false
+
+[functions.admin-hunter]
+verify_jwt = false
