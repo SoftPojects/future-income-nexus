@@ -98,10 +98,10 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          {/* Backdrop */}
+          {/* Backdrop — only closeable during amount/error steps */}
           <motion.div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={resetAndClose}
+            onClick={step === "amount" || step === "error" ? resetAndClose : undefined}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -220,8 +220,13 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
                 <p className="font-display text-sm font-bold tracking-widest text-neon-magenta">
                   {step === "sending"
                     ? "CONFIRM IN WALLET..."
-                    : "VERIFYING ON-CHAIN..."}
+                    : "WAITING FOR DATABASE SYNC..."}
                 </p>
+                {step === "verifying" && (
+                  <p className="text-[10px] font-mono text-muted-foreground mt-1">
+                    Transaction confirmed. Syncing with backend...
+                  </p>
+                )}
               </div>
             )}
 
