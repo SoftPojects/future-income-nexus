@@ -2,3 +2,9 @@ project_id = "bigrgsmwbqvjroaoixfj"
 
 [functions.verify-sol-transaction]
 verify_jwt = false
+
+[functions.generate-tweet]
+verify_jwt = false
+
+[functions.post-tweet]
+verify_jwt = false

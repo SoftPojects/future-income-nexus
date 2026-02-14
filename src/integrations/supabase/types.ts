@@ -107,6 +107,60 @@ export type Database = {
         }
         Relationships: []
       }
+      tweet_queue: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          posted_at: string | null
+          scheduled_at: string
+          status: string
+          type: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          posted_at?: string | null
+          scheduled_at?: string
+          status?: string
+          type?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          posted_at?: string | null
+          scheduled_at?: string
+          status?: string
+          type?: string
+        }
+        Relationships: []
+      }
+      x_mentions: {
+        Row: {
+          author_handle: string
+          content: string
+          created_at: string
+          id: string
+          replied: boolean
+        }
+        Insert: {
+          author_handle: string
+          content: string
+          created_at?: string
+          id: string
+          replied?: boolean
+        }
+        Update: {
+          author_handle?: string
+          content?: string
+          created_at?: string
+          id?: string
+          replied?: boolean
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
