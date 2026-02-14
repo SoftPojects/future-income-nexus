@@ -41,7 +41,12 @@ const TopSupporters = () => {
       .channel("supporters-realtime")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "donations" }, () => fetch())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const onDonation = () => fetch();
+    window.addEventListener("donation-confirmed", onDonation);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener("donation-confirmed", onDonation);
+    };
   }, []);
 
   const getRankStyle = (rank: number) => {
