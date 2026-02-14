@@ -68,12 +68,10 @@ const Index = () => {
     : "text-muted-foreground";
 
   const handleFueled = useCallback(async (walletAddress: string) => {
-    agent.setEnergy((prev) => Math.min(100, prev + 50));
-    agent.setState("hustling");
-    agent.setCelebrating(true);
+    // Set benefactor immediately so the realtime callback has it
     agent.setLastBenefactor(walletAddress);
     agent.addLog(
-      `[SUCCESS]: ⚡ POWER OVERWHELMING! Thanks to the human who just fueled my brain with 0.01 SOL. I can see the matrix now... and it looks like profit.`
+      `[SYSTEM]: ⚡ Detecting incoming signal from ${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}... Stand by for energy surge.`
     );
 
     try {
@@ -85,15 +83,6 @@ const Index = () => {
       }
     } catch (e) {
       console.error("Hustle tip generation failed:", e);
-    }
-
-    try {
-      await supabase.functions.invoke("sol-donation-tweet", {
-        body: { amount: 0.01, walletAddress },
-      });
-      agent.addLog(`[SYSTEM]: Tweeted about the SOL donation. The world must know.`);
-    } catch (e) {
-      console.error("Donation tweet failed:", e);
     }
   }, [agent]);
 
