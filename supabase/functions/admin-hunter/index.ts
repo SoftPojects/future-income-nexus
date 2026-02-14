@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 async function verifyAdmin(req: Request, sb: any): Promise<boolean> {
-  const token = req.headers.get("x-admin-token");
+  // Try x-admin-token first, then Authorization Bearer
+  const token = req.headers.get("x-admin-token") || req.headers.get("authorization")?.replace("Bearer ", "");
   if (!token) return false;
   const secret = Deno.env.get("ADMIN_PASSWORD");
   if (!secret) return false;
