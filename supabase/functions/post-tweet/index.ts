@@ -127,7 +127,9 @@ serve(async (req) => {
 
       const result = await postToTwitter(tweet.content);
       if (result.success) {
-        await sb.from("tweet_queue").update({ status: "posted", posted_at: new Date().toISOString() }).eq("id", tweet.id);
+        await sb.from("tweet_queue").update({ status: "posted", posted_at: new Date().toISOString(), error_message: null }).eq("id", tweet.id);
+      } else {
+        await sb.from("tweet_queue").update({ status: "error", error_message: result.error || "Unknown error" }).eq("id", tweet.id);
       }
 
       return new Response(JSON.stringify(result), {
@@ -152,7 +154,9 @@ serve(async (req) => {
 
     const result = await postToTwitter(nextTweet.content);
     if (result.success) {
-      await sb.from("tweet_queue").update({ status: "posted", posted_at: new Date().toISOString() }).eq("id", nextTweet.id);
+      await sb.from("tweet_queue").update({ status: "posted", posted_at: new Date().toISOString(), error_message: null }).eq("id", nextTweet.id);
+    } else {
+      await sb.from("tweet_queue").update({ status: "error", error_message: result.error || "Unknown error" }).eq("id", nextTweet.id);
     }
 
     return new Response(JSON.stringify(result), {
