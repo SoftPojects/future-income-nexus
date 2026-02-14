@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
-import { Activity, Wifi, Twitter } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Activity, Wifi, Twitter, Menu, X } from "lucide-react";
 import { toast } from "sonner";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import ConnectWalletButton from "@/components/ConnectWalletButton";
 import NeonCube from "@/components/NeonCube";
 import Terminal from "@/components/Terminal";
@@ -128,17 +129,20 @@ const Index = () => {
 
       {/* Header */}
       <motion.header
-        className="border-b border-border px-6 py-4 flex items-center justify-between relative z-10"
+        className="border-b border-border px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between relative z-10"
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <div className="flex items-center gap-3">
+        {/* Logo — always visible */}
+        <div className="flex items-center gap-2 sm:gap-3">
           <Activity className="w-5 h-5 text-neon-cyan" />
-          <h1 className="font-display text-lg font-bold tracking-[0.3em] text-foreground">
+          <h1 className="font-display text-base sm:text-lg font-bold tracking-[0.3em] text-foreground">
             HUSTLECORE
           </h1>
         </div>
-        <div className="flex items-center gap-4">
+
+        {/* Desktop nav */}
+        <div className="hidden md:flex items-center gap-4">
           <TradeHcoreButton />
           <ConnectWalletButton />
           <AudioToggle muted={audio.muted} onToggle={audio.toggleMute} />
@@ -151,6 +155,66 @@ const Index = () => {
           <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${stateColor}`}>
             STATE: {agent.state}
           </span>
+        </div>
+
+        {/* Mobile hamburger */}
+        <div className="flex md:hidden items-center gap-2">
+          {/* Compact status pill */}
+          <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full border ${isDepleted ? "border-destructive/40 bg-destructive/10" : "border-neon-green/30 bg-neon-green/5"}`}>
+            <Wifi className={`w-3 h-3 ${isDepleted ? "text-destructive" : "text-neon-green"}`} />
+            <span className={`text-[9px] font-mono font-bold uppercase ${stateColor}`}>
+              {agent.state}
+            </span>
+          </div>
+
+          <Sheet>
+            <SheetTrigger asChild>
+              <button className="p-2 rounded-lg border border-border hover:border-neon-cyan/50 hover:bg-neon-cyan/5 transition-all">
+                <Menu className="w-5 h-5 text-neon-cyan" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-[280px] bg-background border-l border-neon-cyan/20 p-0">
+              <div className="flex flex-col h-full">
+                {/* Menu header */}
+                <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-neon-cyan" />
+                  <span className="font-display text-sm font-bold tracking-[0.2em] text-neon-cyan">
+                    COMMAND MENU
+                  </span>
+                </div>
+
+                {/* Status card */}
+                <div className="mx-4 mt-4 p-3 rounded-lg border border-border bg-card/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono text-muted-foreground tracking-wider">SYSTEM STATUS</span>
+                    <Wifi className={`w-3.5 h-3.5 ${isDepleted ? "text-destructive" : "text-neon-green"}`} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${isDepleted ? "bg-destructive" : "bg-neon-green"} animate-pulse`} />
+                    <span className={`text-xs font-mono font-bold uppercase ${stateColor}`}>
+                      {isDepleted ? "OFFLINE" : "CONNECTED"} — {agent.state}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col gap-2 p-4 flex-1">
+                  <span className="text-[9px] font-mono text-muted-foreground tracking-widest mb-1">ACTIONS</span>
+                  <TradeHcoreButton />
+                  <ConnectWalletButton />
+                  <div className="flex items-center justify-between mt-2 px-1">
+                    <span className="text-[10px] font-mono text-muted-foreground">Audio</span>
+                    <AudioToggle muted={audio.muted} onToggle={audio.toggleMute} />
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-4 py-3 border-t border-border">
+                  <HuntingIndicator />
+                </div>
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
       </motion.header>
 
