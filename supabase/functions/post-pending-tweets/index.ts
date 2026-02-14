@@ -171,7 +171,18 @@ serve(async (req) => {
     }
 
     // Post the tweet
-    const result = await postToTwitter(finalContent);
+    let result = await postToTwitter(finalContent);
+
+    // If 403 and content has @ mentions, retry without @ symbols
+    if (!result.success && result.error?.includes("403") && finalContent.includes("@")) {
+      console.log("403 with @ mentions detected, retrying without @ symbols...");
+      const strippedContent = finalContent.replace(/@(\w+)/g, "$1");
+      result = await postToTwitter(strippedContent);
+      if (result.success) {
+        finalContent = strippedContent;
+        await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
+      }
+    }
 
     if (result.success) {
       await sb.from("tweet_queue").update({
