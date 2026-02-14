@@ -170,9 +170,6 @@ const Index = () => {
           </motion.div>
         </div>
 
-        {/* Live X Transmissions */}
-        <LiveXTransmissions />
-
         <StatCards
           totalHustled={agent.totalHustled}
           energy={agent.energy}
@@ -214,6 +211,9 @@ const Index = () => {
         </div>
 
         <ManifestoSection />
+
+        {/* Live X Transmissions */}
+        <LiveXTransmissions />
 
         <motion.div
           className="glass rounded-lg px-4 py-3 flex items-center justify-between text-[10px] font-mono text-muted-foreground flex-wrap gap-2"
