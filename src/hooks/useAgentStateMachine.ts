@@ -101,6 +101,10 @@ export function useAgentStateMachine(): AgentContext {
   const logIndexRef = useRef(0);
   const dbStateIdRef = useRef<string | null>(null);
   const initializedRef = useRef(false);
+  const [celebrating, setCelebrating] = useState(false);
+  const [lastBenefactor, setLastBenefactor] = useState<string | null>(null);
+  const lastBenefactorRef = useRef<string | null>(null);
+  const prevEnergyRef = useRef<number | null>(null);
 
   // ── Load persisted state from DB on mount ──
   useEffect(() => {
@@ -162,9 +166,47 @@ export function useAgentStateMachine(): AgentContext {
     };
   }, []);
 
-  // ── Realtime: subscribe to agent_state changes from cron ──
+  // ── Realtime: subscribe to agent_state changes (instant updates) ──
+  const addLogRef = useRef((...args: Parameters<typeof addLog>) => {});
+
   useEffect(() => {
-    // Poll DB state every 10s to sync with autonomous-tick changes
+    const channel = supabase
+      .channel("agent-state-realtime")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "agent_state" },
+        (payload) => {
+          const row = payload.new as any;
+          const prevEnergy = prevEnergyRef.current;
+          setTotalHustled(Number(row.total_hustled));
+          setEnergy(row.energy_level);
+          setState(row.agent_status as AgentState);
+          const found = STRATEGIES.find((s) => s.name === row.current_strategy);
+          if (found) setStrategy(found);
+
+          // Detect energy reset (jumped to 100 from a lower value) → trigger celebration
+          if (row.energy_level === 100 && prevEnergy !== null && prevEnergy < 100) {
+            setCelebrating(true);
+            const wallet = lastBenefactorRef.current;
+            const shortWallet = wallet && wallet.length >= 8
+              ? `${wallet.slice(0, 4)}...${wallet.slice(-4)}`
+              : "UNKNOWN";
+            addLogRef.current(
+              `[SUCCESS]: ⚡ RECHARGED! 100% ENERGY ATTAINED. THANK YOU ${shortWallet}. BACK TO DOMINATING THE MARKETS.`
+            );
+          }
+          prevEnergyRef.current = row.energy_level;
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // Also poll as fallback every 30s
+  useEffect(() => {
     const interval = setInterval(async () => {
       if (!dbStateIdRef.current) return;
       const { data } = await supabase
@@ -178,8 +220,9 @@ export function useAgentStateMachine(): AgentContext {
         setState(data.agent_status as AgentState);
         const found = STRATEGIES.find((s) => s.name === data.current_strategy);
         if (found) setStrategy(found);
+        prevEnergyRef.current = data.energy_level;
       }
-    }, 10000);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -222,6 +265,11 @@ export function useAgentStateMachine(): AgentContext {
     },
     [persistLog]
   );
+
+  // Keep addLog ref in sync for realtime callback
+  useEffect(() => {
+    addLogRef.current = addLog;
+  }, [addLog]);
 
   const getLogsForState = useCallback((s: AgentState) => {
     if (s === "hustling") return HUSTLING_LOGS;
@@ -361,8 +409,10 @@ export function useAgentStateMachine(): AgentContext {
     return () => clearInterval(interval);
   }, []);
 
-  const [celebrating, setCelebrating] = useState(false);
-  const [lastBenefactor, setLastBenefactor] = useState<string | null>(null);
+  // Keep ref in sync for use inside realtime callback
+  useEffect(() => {
+    lastBenefactorRef.current = lastBenefactor;
+  }, [lastBenefactor]);
 
   return { state, setState, logs, totalHustled, energy, setEnergy, sassyMessage, strategy, celebrating, setCelebrating, lastBenefactor, setLastBenefactor, addLog };
 }

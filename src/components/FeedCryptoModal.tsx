@@ -66,9 +66,12 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
 
       const signature = await sendTransaction(transaction, connection);
       setTxSignature(signature);
+
+      // Immediately set benefactor and show detecting signal
+      onFueled(publicKey.toBase58());
       setStep("verifying");
 
-      // Verify via edge function
+      // Verify via edge function (trigger inserts donation → DB trigger resets energy)
       const { data, error } = await supabase.functions.invoke(
         "verify-sol-transaction",
         { body: { signature } }
@@ -78,10 +81,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
         throw new Error(data?.error || error?.message || "Verification failed");
       }
 
-      // Donation is now recorded server-side in verify-sol-transaction
-
       setStep("success");
-      onFueled(publicKey.toBase58());
     } catch (e: any) {
       console.error("Feed transaction failed:", e);
       setErrorMsg(e?.message || "Transaction failed");
