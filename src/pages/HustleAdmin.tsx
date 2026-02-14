@@ -100,6 +100,11 @@ const HustleAdmin = () => {
     }
   }, [authenticated, fetchTweets, fetchMentions]);
 
+  const getAdminHeaders = () => {
+    const token = sessionStorage.getItem("admin_token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   const handleLogin = async () => {
     if (!password.trim() || loginLoading) return;
     setLoginLoading(true);
@@ -110,6 +115,7 @@ const HustleAdmin = () => {
       if (error || !data?.success) {
         toast({ title: "ACCESS DENIED", description: data?.error || "Wrong password, human.", variant: "destructive" });
       } else {
+        sessionStorage.setItem("admin_token", data.token);
         setAuthenticated(true);
       }
     } catch (e) {
@@ -123,7 +129,7 @@ const HustleAdmin = () => {
   const handleGenerateNow = async () => {
     setGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke("generate-tweet");
+      const { data, error } = await supabase.functions.invoke("generate-tweet", { headers: getAdminHeaders() });
       if (error) throw error;
       toast({ title: "TWEET GENERATED", description: data?.content?.slice(0, 60) + "..." });
       fetchTweets();
@@ -140,6 +146,7 @@ const HustleAdmin = () => {
     try {
       const { error } = await supabase.functions.invoke("admin-tweet-actions", {
         body: { action: "insert", content: manualTweet.trim(), type: "manual" },
+        headers: getAdminHeaders(),
       });
       if (error) throw error;
       setManualTweet("");
@@ -154,7 +161,7 @@ const HustleAdmin = () => {
 
   const handlePostNow = async (id: string) => {
     try {
-      const { error } = await supabase.functions.invoke("post-tweet", { body: { tweetId: id } });
+      const { error } = await supabase.functions.invoke("post-tweet", { body: { tweetId: id }, headers: getAdminHeaders() });
       if (error) throw error;
       toast({ title: "POSTED", description: "Tweet sent to X." });
       fetchTweets();
@@ -166,6 +173,7 @@ const HustleAdmin = () => {
   const handleDelete = async (id: string) => {
     await supabase.functions.invoke("admin-tweet-actions", {
       body: { action: "delete", id },
+      headers: getAdminHeaders(),
     });
     fetchTweets();
   };
@@ -179,6 +187,7 @@ const HustleAdmin = () => {
     if (!editingId) return;
     await supabase.functions.invoke("admin-tweet-actions", {
       body: { action: "update", id: editingId, content: editContent },
+      headers: getAdminHeaders(),
     });
     setEditingId(null);
     setEditContent("");

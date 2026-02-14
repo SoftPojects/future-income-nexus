@@ -7,8 +7,55 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function verifyAdminToken(req: Request): Promise<boolean> {
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) return false;
+
+  const token = authHeader.replace("Bearer ", "");
+  const [dataB64, sigB64] = token.split(".");
+  if (!dataB64 || !sigB64) return false;
+
+  const ADMIN_PASSWORD = Deno.env.get("ADMIN_PASSWORD");
+  if (!ADMIN_PASSWORD) return false;
+
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      encoder.encode(ADMIN_PASSWORD),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+
+    const valid = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      Uint8Array.from(atob(sigB64), (c) => c.charCodeAt(0)),
+      encoder.encode(atob(dataB64))
+    );
+
+    if (!valid) return false;
+
+    const sessionData = JSON.parse(atob(dataB64));
+    if (Date.now() > sessionData.exp) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Verify admin token
+  if (!(await verifyAdminToken(req))) {
+    return new Response(
+      JSON.stringify({ error: "Unauthorized" }),
+      { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
+  }
 
   try {
     const sb = createClient(
