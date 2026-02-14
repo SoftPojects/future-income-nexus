@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bitcoin, X, Zap, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { useCustomWalletModal } from "@/hooks/useCustomWalletModal";
 import { useConnection } from "@solana/wallet-adapter-react";
 import {
   PublicKey,
@@ -25,7 +25,7 @@ type FeedStep = "amount" | "sending" | "verifying" | "success" | "error";
 
 const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
   const { publicKey, sendTransaction, connected } = useWallet();
-  const { setVisible } = useWalletModal();
+  const { setVisible } = useCustomWalletModal();
   const { connection } = useConnection();
   const [step, setStep] = useState<FeedStep>("amount");
   const [solAmount, setSolAmount] = useState(DEFAULT_SOL_AMOUNT.toString());
