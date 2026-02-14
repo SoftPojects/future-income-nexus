@@ -62,6 +62,16 @@ const Index = () => {
     } catch (e) {
       console.error("Hustle tip generation failed:", e);
     }
+
+    // Trigger SOL donation tweet
+    try {
+      await supabase.functions.invoke("sol-donation-tweet", {
+        body: { amount: 0.01, walletAddress },
+      });
+      agent.addLog(`[SYSTEM]: Tweeted about the SOL donation. The world must know.`);
+    } catch (e) {
+      console.error("Donation tweet failed:", e);
+    }
   }, [agent]);
 
   return (

@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -27,6 +28,36 @@ interface XMention {
   created_at: string;
 }
 
+// Calculate next scheduled post time (every 4 hours from midnight UTC)
+function getNextScheduledPost(): Date {
+  const now = new Date();
+  const hours = now.getUTCHours();
+  const nextSlot = Math.ceil((hours + 1) / 4) * 4;
+  const next = new Date(now);
+  next.setUTCHours(nextSlot >= 24 ? nextSlot - 24 : nextSlot, 0, 0, 0);
+  if (nextSlot >= 24) next.setUTCDate(next.getUTCDate() + 1);
+  if (next <= now) next.setUTCHours(next.getUTCHours() + 4);
+  return next;
+}
+
+function useCountdown(target: Date) {
+  const [timeLeft, setTimeLeft] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const diff = target.getTime() - Date.now();
+      if (diff <= 0) { setTimeLeft("POSTING NOW..."); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(`${h}h ${m}m ${s}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [target]);
+  return timeLeft;
+}
+
 const HustleAdmin = () => {
   const { toast } = useToast();
   const [authenticated, setAuthenticated] = useState(false);
@@ -39,8 +70,11 @@ const HustleAdmin = () => {
   const [generating, setGenerating] = useState(false);
   const [posting, setPosting] = useState(false);
   const [apiStatus, setApiStatus] = useState<"unknown" | "connected" | "error">("unknown");
+  const [autopilot, setAutopilot] = useState(true);
 
   const ADMIN_PASS = "hustlecore2026";
+  const nextPost = getNextScheduledPost();
+  const countdown = useCountdown(nextPost);
 
   const fetchTweets = useCallback(async () => {
     const { data } = await supabase
@@ -218,6 +252,43 @@ const HustleAdmin = () => {
       </motion.header>
 
       <main className="p-6 max-w-6xl mx-auto space-y-6">
+        {/* Autopilot Banner */}
+        <motion.div
+          className={`rounded-lg p-4 border flex items-center justify-between ${
+            autopilot
+              ? "bg-neon-green/5 border-neon-green/30"
+              : "bg-muted border-border"
+          }`}
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="flex items-center gap-3">
+            <Power className={`w-5 h-5 ${autopilot ? "text-neon-green" : "text-muted-foreground"}`} />
+            <div>
+              <h3 className="font-display text-sm tracking-widest text-foreground">
+                AUTOPILOT MODE
+              </h3>
+              <p className="text-[10px] font-mono text-muted-foreground">
+                {autopilot
+                  ? "Auto-posting every 4h • Auto-replying every 15m • Fully autonomous"
+                  : "Manual mode — generate and post tweets yourself"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            {autopilot && (
+              <div className="text-right">
+                <p className="text-[10px] font-mono text-muted-foreground tracking-widest">NEXT AUTO-POST</p>
+                <p className="font-mono text-sm text-neon-cyan font-bold">{countdown}</p>
+              </div>
+            )}
+            <Switch
+              checked={autopilot}
+              onCheckedChange={setAutopilot}
+            />
+          </div>
+        </motion.div>
+
         <Tabs defaultValue="queue" className="w-full">
           <TabsList className="bg-muted border border-border">
             <TabsTrigger value="queue">Tweet Queue</TabsTrigger>
@@ -233,17 +304,28 @@ const HustleAdmin = () => {
                 PENDING ({pendingTweets.length})
               </h2>
               <div className="flex gap-2">
-                <Button onClick={handleGenerateNow} disabled={generating} size="sm">
-                  <Zap className="w-4 h-4 mr-1" />
-                  {generating ? "Generating..." : "Generate Now"}
-                </Button>
+                {!autopilot && (
+                  <Button onClick={handleGenerateNow} disabled={generating} size="sm">
+                    <Zap className="w-4 h-4 mr-1" />
+                    {generating ? "Generating..." : "Generate Now"}
+                  </Button>
+                )}
                 <Button onClick={fetchTweets} variant="outline" size="sm">
                   <RefreshCw className="w-4 h-4" />
                 </Button>
               </div>
             </div>
 
-            {pendingTweets.length === 0 && (
+            {autopilot && pendingTweets.length === 0 && (
+              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
+                <Power className="w-8 h-8 mx-auto mb-3 text-neon-green opacity-50" />
+                Autopilot is active. Tweets are generated and posted automatically every 4 hours.
+                <br />
+                <span className="text-neon-cyan font-mono text-xs">Next post in: {countdown}</span>
+              </div>
+            )}
+
+            {!autopilot && pendingTweets.length === 0 && (
               <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
                 No pending tweets. Hit "Generate Now" to create one.
               </div>
@@ -278,9 +360,11 @@ const HustleAdmin = () => {
                           </span>
                         </div>
                         <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => handlePostNow(tweet.id)}>
-                            <Send className="w-3 h-3" />
-                          </Button>
+                          {!autopilot && (
+                            <Button size="sm" variant="ghost" onClick={() => handlePostNow(tweet.id)}>
+                              <Send className="w-3 h-3" />
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" onClick={() => handleEdit(tweet)}>
                             <Edit2 className="w-3 h-3" />
                           </Button>
@@ -351,9 +435,16 @@ const HustleAdmin = () => {
               </Button>
             </div>
 
+            {autopilot && (
+              <div className="glass rounded-lg p-3 flex items-center gap-2 text-[10px] font-mono text-neon-green">
+                <Power className="w-3 h-3" />
+                Auto-reply active — checking mentions every 15 minutes
+              </div>
+            )}
+
             {mentions.length === 0 && (
               <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
-                No mentions tracked yet. Connect X API keys to start monitoring.
+                No mentions tracked yet. {autopilot ? "Auto-reply will fetch and respond automatically." : "Connect X API keys to start monitoring."}
               </div>
             )}
 
@@ -397,6 +488,12 @@ const HustleAdmin = () => {
                     </div>
                   </div>
                   <div className="glass rounded-lg p-4">
+                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">AUTOPILOT</p>
+                    <span className={`font-mono text-sm ${autopilot ? "text-neon-green" : "text-muted-foreground"}`}>
+                      {autopilot ? "ACTIVE" : "OFF"}
+                    </span>
+                  </div>
+                  <div className="glass rounded-lg p-4">
                     <p className="text-[10px] text-muted-foreground tracking-widest mb-1">QUEUE SIZE</p>
                     <span className="text-foreground font-mono text-2xl">{pendingTweets.length}</span>
                   </div>
@@ -407,6 +504,10 @@ const HustleAdmin = () => {
                   <div className="glass rounded-lg p-4">
                     <p className="text-[10px] text-muted-foreground tracking-widest mb-1">MENTIONS TRACKED</p>
                     <span className="text-foreground font-mono text-2xl">{mentions.length}</span>
+                  </div>
+                  <div className="glass rounded-lg p-4">
+                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">NEXT AUTO-POST</p>
+                    <span className="font-mono text-sm text-neon-cyan">{autopilot ? countdown : "N/A"}</span>
                   </div>
                 </div>
                 <Button onClick={checkApiStatus} variant="outline" className="w-full">
