@@ -215,7 +215,7 @@ const Index = () => {
                 <Menu className="w-5 h-5 text-neon-cyan" />
               </button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[300px] bg-background border-l border-neon-cyan/20 p-0 z-40" onInteractOutside={(e) => e.preventDefault()}>
+            <SheetContent side="right" className="w-[300px] bg-background border-l border-neon-cyan/20 p-0 z-40">
               <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
               <div className="flex flex-col h-full">
                 {/* Menu header */}
