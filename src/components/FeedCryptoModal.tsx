@@ -81,6 +81,8 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
         throw new Error(data?.error || error?.message || "Verification failed");
       }
 
+      // Force immediate UI refresh for donation-dependent components
+      window.dispatchEvent(new Event("donation-confirmed"));
       setStep("success");
     } catch (e: any) {
       console.error("Feed transaction failed:", e);

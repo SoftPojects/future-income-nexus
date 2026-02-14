@@ -29,7 +29,14 @@ export function useTotalSolDonated() {
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    // Listen for manual donation-confirmed events for instant UI update
+    const onDonation = () => refresh();
+    window.addEventListener("donation-confirmed", onDonation);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener("donation-confirmed", onDonation);
+    };
   }, []);
 
   return { totalSol, refresh };

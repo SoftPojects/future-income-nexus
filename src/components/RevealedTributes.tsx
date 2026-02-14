@@ -34,7 +34,12 @@ const RevealedTributes = () => {
       .channel("tributes-realtime")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "donations" }, () => fetchRecent())
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    const onDonation = () => fetchRecent();
+    window.addEventListener("donation-confirmed", onDonation);
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener("donation-confirmed", onDonation);
+    };
   }, []);
 
   return (
