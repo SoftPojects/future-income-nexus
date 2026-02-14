@@ -121,18 +121,37 @@ serve(async (req) => {
     }
 
     // Record donation for SOL goal tracking — use on-chain sender pubkey
-    const senderAddress = tx.transaction?.message?.accountKeys?.[0]?.pubkey || "unknown";
-    const verifiedSender = typeof senderAddress === "string" ? senderAddress : "unknown";
-    await supabase.from("donations").insert({
-      wallet_address: verifiedSender,
+    const accountKeys = tx.transaction?.message?.accountKeys || [];
+    let senderAddress = "unknown";
+    if (accountKeys.length > 0) {
+      const firstKey = accountKeys[0];
+      // accountKeys can be strings or objects with a pubkey field
+      senderAddress = typeof firstKey === "string" ? firstKey : (firstKey?.pubkey ?? "unknown");
+    }
+    // Also try to extract from the transfer instruction itself
+    const transferSender = instructions.find(
+      (ix: any) => ix.program === "system" && ix.parsed?.type === "transfer"
+    )?.parsed?.info?.source;
+    if (transferSender && typeof transferSender === "string") {
+      senderAddress = transferSender;
+    }
+
+    console.log("Inserting donation:", { wallet_address: senderAddress, amount_sol: amountSol, tx_signature: signature });
+    const { error: insertError } = await supabase.from("donations").insert({
+      wallet_address: senderAddress,
       amount_sol: amountSol,
       tx_signature: signature,
     });
+    if (insertError) {
+      console.error("Failed to insert donation:", JSON.stringify(insertError));
+    } else {
+      console.log("Donation inserted successfully");
+    }
 
     // Trigger donation tweet with the verified on-chain sender address
     try {
       await supabase.functions.invoke("sol-donation-tweet", {
-        body: { amount: amountSol, walletAddress: verifiedSender },
+        body: { amount: amountSol, walletAddress: senderAddress },
       });
     } catch (e) {
       console.error("Donation tweet trigger failed:", e);
