@@ -31,9 +31,13 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
   const [solAmount, setSolAmount] = useState(DEFAULT_SOL_AMOUNT.toString());
   const [errorMsg, setErrorMsg] = useState("");
   const [txSignature, setTxSignature] = useState("");
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
+
+  const isWalletModalActive = () => {
+    return !!document.querySelector('.wallet-adapter-modal-fade-in');
+  };
 
   const resetAndClose = () => {
+    if (isWalletModalActive()) return; // Don't close if wallet modal is open
     setStep("amount");
     setSolAmount(DEFAULT_SOL_AMOUNT.toString());
     setErrorMsg("");
@@ -43,10 +47,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
 
   const handleFeed = async () => {
     if (!connected || !publicKey) {
-      setWalletModalOpen(true);
       setVisible(true);
-      // Wait for connection then reset flag
-      setTimeout(() => setWalletModalOpen(false), 1000);
       return;
     }
 
@@ -107,7 +108,7 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
           {/* Backdrop — only closeable during amount/error steps */}
           <motion.div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={!walletModalOpen && (step === "amount" || step === "error") ? resetAndClose : undefined}
+            onClick={(step === "amount" || step === "error") ? resetAndClose : undefined}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
