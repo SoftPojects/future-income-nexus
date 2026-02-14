@@ -105,10 +105,15 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
-          {/* Backdrop — only closeable during amount/error steps */}
+          {/* Backdrop — only closeable during amount/error steps, only on direct clicks */}
           <motion.div
             className="absolute inset-0 bg-background/80 backdrop-blur-sm"
-            onClick={(step === "amount" || step === "error") ? resetAndClose : undefined}
+            onMouseDown={(e) => {
+              // Only close if clicking directly on the backdrop, not bubbled events
+              if (e.target === e.currentTarget && (step === "amount" || step === "error")) {
+                resetAndClose();
+              }
+            }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
