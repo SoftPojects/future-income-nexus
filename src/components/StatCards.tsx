@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
-import { DollarSign, Battery, Brain } from "lucide-react";
+import { DollarSign, Battery, Brain, Info } from "lucide-react";
 import type { AgentState } from "@/hooks/useAgentStateMachine";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface StatCardsProps {
   totalHustled: number;
@@ -31,6 +32,16 @@ const StatCards = ({ totalHustled, energy, agentState, strategy }: StatCardsProp
           <span className="font-display text-[10px] tracking-widest text-muted-foreground uppercase">
             Total Hustled
           </span>
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[260px] text-xs leading-relaxed">
+                Simulated Value Generation. This represents the agent's performance in the Phase 1 Neural Sandbox. Real-world asset integration starts in Phase 2.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         <motion.div
           className="font-display text-4xl font-bold text-neon-cyan text-glow-cyan"
@@ -39,8 +50,14 @@ const StatCards = ({ totalHustled, energy, agentState, strategy }: StatCardsProp
           ${totalHustled.toFixed(2)}
         </motion.div>
         <p className="text-[10px] text-muted-foreground mt-2">
-          {agentState === "hustling" ? "🟢 Actively earning" : agentState === "resting" ? "💤 Paused — recharging" : "⏸ Idle — awaiting orders"}
+          {agentState === "hustling" ? "🟢 Value Identified (Sandbox Mode)" : agentState === "depleted" ? "☠️ Depleted — counter paused" : agentState === "resting" ? "💤 Resting — counter paused" : "⏸ Idle — counter paused"}
         </p>
+        <button
+          onClick={() => document.getElementById("manifesto")?.scrollIntoView({ behavior: "smooth" })}
+          className="mt-3 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/10 transition-colors uppercase"
+        >
+          ⚡ Vote for Phase 2
+        </button>
       </motion.div>
 
       {/* Energy Level */}
