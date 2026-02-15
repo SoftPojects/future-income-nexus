@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Lock, Zap, ExternalLink, Loader2, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { VIRTUALS_URL } from "./CountdownBanner";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 
 interface AlphaDropsProps {
@@ -97,7 +98,7 @@ const AlphaDrops = ({ userInfo }: AlphaDropsProps) => {
           {/* CTA Buttons */}
           <div className="flex flex-col items-center gap-3">
             <motion.a
-              href="https://app.virtuals.io"
+              href={VIRTUALS_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="relative group"
@@ -113,7 +114,7 @@ const AlphaDrops = ({ userInfo }: AlphaDropsProps) => {
             </motion.a>
 
             <motion.a
-              href="https://app.virtuals.io"
+              href={VIRTUALS_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="relative group"

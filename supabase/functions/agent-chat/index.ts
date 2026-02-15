@@ -63,6 +63,21 @@ serve(async (req) => {
       });
     }
 
+    // Countdown context
+    const launchTime = new Date("2026-02-18T16:00:00Z").getTime();
+    const now = Date.now();
+    const diff = launchTime - now;
+    const isLive = diff <= 0;
+    const virtualsUrl = "https://app.virtuals.io/prototypes/0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
+    let countdownContext = "";
+    if (isLive) {
+      countdownContext = `\n\nLAUNCH STATUS: $HCORE is LIVE and trading on Virtuals. Link: ${virtualsUrl}\nPeriodically mention that trading is active and hype up the token.`;
+    } else {
+      const daysLeft = Math.floor(diff / 86400000);
+      const hoursLeft = Math.floor((diff % 86400000) / 3600000);
+      countdownContext = `\n\nLAUNCH COUNTDOWN: $HCORE launches in ${daysLeft}d ${hoursLeft}h on Virtuals.io. Link: ${virtualsUrl}\nPeriodically mention this countdown, build hype, and share the Virtuals prototype link with users. Example: "[SYSTEM]: Integration with Virtuals Grid in T-minus ${daysLeft}d ${hoursLeft}h."`;
+    }
+
     // Tiered system prompts with STRICT data enforcement
     const userTier = tier || "guest";
 
@@ -74,6 +89,7 @@ CRITICAL DATA RULES (NEVER VIOLATE):
 - ALWAYS reference these exact values when discussing your stats.
 - If you mention money, use EXACTLY $${balance}. If you mention energy, use EXACTLY ${energy}%.
 - NEVER invent, recall, or hallucinate different numbers.
+${countdownContext}
 
 CURRENT ENVIRONMENT STATUS: Balance=$${balance}, Energy=${energy}%, Status=${status}, Strategy=${strategy}`;
 

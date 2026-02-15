@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { Zap, ExternalLink } from "lucide-react";
+import { VIRTUALS_URL } from "./CountdownBanner";
 
 interface TradeHcoreButtonProps {
   size?: "sm" | "lg";
@@ -10,7 +11,7 @@ const TradeHcoreButton = ({ size = "sm" }: TradeHcoreButtonProps) => {
 
   return (
     <motion.a
-      href="https://app.virtuals.io"
+      href={VIRTUALS_URL}
       target="_blank"
       rel="noopener noreferrer"
       className="relative group inline-flex"

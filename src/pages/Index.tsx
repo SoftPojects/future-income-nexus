@@ -24,6 +24,7 @@ import LiveXTransmissions from "@/components/LiveXTransmissions";
 import AudioToggle from "@/components/AudioToggle";
 import TradeHcoreButton from "@/components/TradeHcoreButton";
 import TokenStatus from "@/components/TokenStatus";
+import CountdownBanner from "@/components/CountdownBanner";
 import HuntingIndicator from "@/components/HuntingIndicator";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 import { useHcoreToken } from "@/hooks/useHcoreToken";
@@ -168,6 +169,9 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background grid-bg relative overflow-hidden">
+      {/* Countdown Banner */}
+      <CountdownBanner />
+
       {/* Ambient glow effects */}
       <div
         className="fixed top-[-200px] left-[-200px] w-[500px] h-[500px] rounded-full opacity-20 pointer-events-none"
