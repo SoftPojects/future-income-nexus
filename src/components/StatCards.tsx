@@ -8,9 +8,10 @@ interface StatCardsProps {
   energy: number;
   agentState: AgentState;
   strategy: { name: string; tags: string[] };
+  onVotePhase2: () => void;
 }
 
-const StatCards = ({ totalHustled, energy, agentState, strategy }: StatCardsProps) => {
+const StatCards = ({ totalHustled, energy, agentState, strategy, onVotePhase2 }: StatCardsProps) => {
   const getEnergyColor = () => {
     if (energy > 60) return "bg-neon-green";
     if (energy > 30) return "bg-yellow-400";
@@ -53,7 +54,7 @@ const StatCards = ({ totalHustled, energy, agentState, strategy }: StatCardsProp
           {agentState === "hustling" ? "🟢 Value Identified (Sandbox Mode)" : agentState === "depleted" ? "☠️ Depleted — counter paused" : agentState === "resting" ? "💤 Resting — counter paused" : "⏸ Idle — counter paused"}
         </p>
         <button
-          onClick={() => document.getElementById("manifesto")?.scrollIntoView({ behavior: "smooth" })}
+          onClick={onVotePhase2}
           className="mt-3 text-[10px] font-mono font-bold tracking-wider px-3 py-1.5 rounded border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/10 transition-colors uppercase"
         >
           ⚡ Vote for Phase 2

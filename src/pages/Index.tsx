@@ -15,6 +15,7 @@ import TopSupporters from "@/components/TopSupporters";
 import RevealedTributes from "@/components/RevealedTributes";
 import FeedCryptoModal from "@/components/FeedCryptoModal";
 import ShareHustleModal from "@/components/ShareHustleModal";
+import Phase2VoteModal from "@/components/Phase2VoteModal";
 import ManifestoSection from "@/components/ManifestoSection";
 import CelebrationOverlay from "@/components/CelebrationOverlay";
 import AlphaDrops from "@/components/AlphaDrops";
@@ -71,11 +72,14 @@ const Index = () => {
   const agent = useAgentStateMachine();
   const userInfo = useHcoreToken();
   const audio = useAudioSystem();
+  const { publicKey } = useWallet();
   const [feedOpen, setFeedOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [voteOpen, setVoteOpen] = useState(false);
   const [lastTweetTime, setLastTweetTime] = useState<string | null>(null);
   const [showAlpha, setShowAlpha] = useState(false);
   const [vipNotified, setVipNotified] = useState(false);
+  const [isDonor, setIsDonor] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const prevLogCount = useRef(0);
 
@@ -90,6 +94,17 @@ const Index = () => {
         if (data?.[0]?.posted_at) setLastTweetTime(data[0].posted_at);
       });
   }, []);
+
+  // Check if connected wallet is a donor
+  useEffect(() => {
+    if (!publicKey) { setIsDonor(false); return; }
+    supabase
+      .from("donations")
+      .select("id")
+      .eq("wallet_address", publicKey.toBase58())
+      .limit(1)
+      .then(({ data }) => setIsDonor(!!(data && data.length > 0)));
+  }, [publicKey]);
 
   // Play blip on new terminal log
   useEffect(() => {
@@ -289,6 +304,7 @@ const Index = () => {
           energy={agent.energy}
           agentState={agent.state}
           strategy={agent.strategy}
+          onVotePhase2={() => setVoteOpen(true)}
         />
 
         <ActionButtons
@@ -380,6 +396,11 @@ const Index = () => {
         energy={agent.energy}
         agentState={agent.state}
         strategy={agent.strategy.name}
+      />
+      <Phase2VoteModal
+        open={voteOpen}
+        onClose={() => setVoteOpen(false)}
+        isDonor={isDonor}
       />
 
       {/* Custom wallet modal for mobile-friendly deep linking */}
