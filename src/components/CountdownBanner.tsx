@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Zap, ExternalLink, Twitter } from "lucide-react";
+import virtualLogo from "@/assets/virtual-logo.avif";
 
 const VIRTUALS_URL = "https://app.virtuals.io/prototypes/0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
 // Feb 18, 2026 20:00:00 GMT+4 = Feb 18, 2026 16:00:00 UTC
@@ -75,8 +76,14 @@ const CountdownBanner = () => {
 
         {/* Title & timer */}
         <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-3">
-          <span className="font-display text-[10px] sm:text-xs font-bold tracking-[0.2em] text-neon-magenta text-glow-magenta">
-            {isLive ? "GRID IS LIVE: TRADING ACTIVE" : "PROTOCOL INITIALIZATION: $HCORE TOKEN LAUNCH"}
+          <span className="font-display text-[10px] sm:text-xs font-bold tracking-[0.2em] text-neon-magenta text-glow-magenta flex items-center gap-2">
+            {isLive ? "GRID IS LIVE: TRADING ACTIVE" : (
+              <>
+                PROTOCOL INITIALIZATION: $HCORE TOKEN LAUNCH ON
+                <img src={virtualLogo} alt="Virtuals" className="inline-block h-4 sm:h-5 w-auto" />
+                VIRTUAL
+              </>
+            )}
           </span>
           {!isLive && timeLeft && (
             <span className="font-mono text-sm sm:text-base font-bold text-neon-cyan text-glow-cyan tracking-wider">
