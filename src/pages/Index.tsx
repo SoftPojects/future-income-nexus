@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Wifi, Twitter, Menu, X, Wallet } from "lucide-react";
+import { Activity, Wifi, Twitter, Menu, X, Wallet, Github } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -356,28 +356,38 @@ const Index = () => {
           transition={{ delay: 0.6 }}
         >
           <span>SYSTEM UPTIME: 47h 23m 11s</span>
-          {lastTweetTime && (
+          <div className="flex items-center gap-3">
+            {lastTweetTime ? (
+              <a
+                href="https://x.com/hustlecore_ai"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-neon-cyan flex items-center gap-1 hover:text-neon-magenta transition-colors cursor-pointer"
+              >
+                <Twitter className="w-3 h-3" />
+                LAST X TRANSMISSION: {new Date(lastTweetTime).toLocaleString()}
+              </a>
+            ) : (
+              <a
+                href="https://x.com/hustlecore_ai"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-neon-cyan flex items-center gap-1 hover:text-neon-magenta transition-colors cursor-pointer"
+              >
+                <Twitter className="w-3 h-3" />
+                FOLLOW ON X
+              </a>
+            )}
             <a
-              href="https://x.com/hustlecore_ai"
+              href="https://github.com/SoftPojects/future-income-nexus"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-neon-cyan flex items-center gap-1 hover:text-neon-cyan/80 transition-colors cursor-pointer"
+              className="text-neon-cyan flex items-center gap-1 hover:text-neon-magenta transition-colors cursor-pointer"
             >
-              <Twitter className="w-3 h-3" />
-              LAST X TRANSMISSION: {new Date(lastTweetTime).toLocaleString()}
+              <Github className="w-3 h-3" />
+              OPEN SOURCE
             </a>
-          )}
-          {!lastTweetTime && (
-            <a
-              href="https://x.com/hustlecore_ai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-neon-cyan flex items-center gap-1 hover:text-neon-cyan/80 transition-colors cursor-pointer"
-            >
-              <Twitter className="w-3 h-3" />
-              FOLLOW ON X
-            </a>
-          )}
+          </div>
           {agent.lastBenefactor && (
             <span className="text-neon-magenta">
               LAST BENEFACTOR: {agent.lastBenefactor.slice(0, 4)}...{agent.lastBenefactor.slice(-4)}
