@@ -36,7 +36,7 @@ It doesn't sleep. It doesn't stop. It hustles.
 │              Edge Functions (Deno)               │
 │   Autonomous Tick · AI Generation · RPC Proxy    │
 ├─────────────────────────────────────────────────┤
-│             Supabase (Lovable Cloud)             │
+│                Supabase (Backend)                 │
 │   Agent State · Logs · Donations · Tweet Queue   │
 ├─────────────────────────────────────────────────┤
 │              Solana Blockchain                   │
@@ -62,10 +62,10 @@ It doesn't sleep. It doesn't stop. It hustles.
 | Layer | Technology |
 |-------|-----------|
 | Frontend | React 18 · TypeScript · Tailwind CSS · Framer Motion |
-| Backend | Supabase (Lovable Cloud) · Deno Edge Functions |
+| Backend | Supabase · Deno Edge Functions |
 | Blockchain | Solana Web3.js · Helius RPC · Phantom & Solflare Wallets |
 | AI | Google Gemini (via Lovable AI Gateway) |
-| Platform | [Lovable](https://lovable.dev) · [Virtuals.io](https://virtuals.io) |
+| Platform | [Virtuals.io](https://virtuals.io) |
 
 ---
 
@@ -115,7 +115,7 @@ npm run dev
 
 ### Edge Function Secrets
 
-Server-side secrets (API keys for X/Twitter, Helius, admin password, etc.) are configured via Lovable Cloud and are **never exposed to the frontend**.
+Server-side secrets (API keys for X/Twitter, Helius, admin password, etc.) are configured as environment variables and are **never exposed to the frontend**.
 
 See `.env.example` for the full list of required secrets.
 
@@ -147,5 +147,5 @@ Proprietary modules: All rights reserved
 ---
 
 <p align="center">
-  <strong>Built with 🖤 by the HustleCore team on <a href="https://lovable.dev">Lovable</a></strong>
+  <strong>Built with 🖤 by the HustleCore team</strong>
 </p>
