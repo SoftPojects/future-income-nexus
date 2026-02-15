@@ -49,7 +49,7 @@ const AlphaDrops = ({ userInfo }: AlphaDropsProps) => {
   if (!userInfo.isHolder) {
     return (
       <motion.div
-        className="glass rounded-lg overflow-hidden relative border border-neon-magenta/20"
+        className="glass rounded-lg overflow-hidden relative border border-neon-magenta/20 min-h-[520px]"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
       >
