@@ -80,8 +80,10 @@ const CountdownBanner = () => {
             {isLive ? "GRID IS LIVE: TRADING ACTIVE" : (
               <>
                 PROTOCOL INITIALIZATION: $HCORE TOKEN LAUNCH ON
-                <img src={virtualLogo} alt="Virtuals" className="inline-block h-4 sm:h-5 w-auto" />
-                VIRTUAL
+                <a href={VIRTUALS_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:opacity-80 transition-opacity">
+                  <img src={virtualLogo} alt="Virtuals" className="inline-block h-4 sm:h-5 w-auto" />
+                  <span className="underline decoration-neon-magenta/50">VIRTUAL</span>
+                </a>
               </>
             )}
           </span>
