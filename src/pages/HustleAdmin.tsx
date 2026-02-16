@@ -112,6 +112,8 @@ const HustleAdmin = () => {
   const [nextTargets, setNextTargets] = useState<TargetAgent[]>([]);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryLog, setDiscoveryLog] = useState<string | null>(null);
+  const [executingId, setExecutingId] = useState<string | null>(null);
+  const [recentExecCount, setRecentExecCount] = useState(0);
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
@@ -166,6 +168,43 @@ const HustleAdmin = () => {
     if (data) setNextTargets(data);
   }, []);
 
+  const fetchExecCount = useCallback(async () => {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count } = await supabase
+      .from("social_logs")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", oneHourAgo)
+      .eq("source", "manual_exec");
+    setRecentExecCount(count || 0);
+  }, []);
+
+  const handleExecuteNow = async (target: TargetAgent) => {
+    if (recentExecCount >= 5) {
+      toast({ title: "⚠️ RATE LIMIT", description: "Max 5 manual executions per hour. Wait before trying again.", variant: "destructive" });
+      return;
+    }
+    setExecutingId(target.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("execute-social-action", {
+        body: { targetId: target.id },
+      });
+      if (error) throw error;
+      if (data?.rateLimited) {
+        toast({ title: "⚠️ RATE LIMIT", description: data.error, variant: "destructive" });
+        return;
+      }
+      const actions = [data?.followed && "Followed", data?.liked && "Liked"].filter(Boolean).join(" & ");
+      toast({ title: actions ? `${actions} @${data.handle}` : "PARTIAL", description: data?.details?.join(", ") || "Done" });
+      fetchSocialLogs();
+      fetchNextTargets();
+      fetchExecCount();
+    } catch (e) {
+      toast({ title: "Execution failed", description: String(e), variant: "destructive" });
+    } finally {
+      setExecutingId(null);
+    }
+  };
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
@@ -173,8 +212,9 @@ const HustleAdmin = () => {
       fetchTargets();
       fetchSocialLogs();
       fetchNextTargets();
+      fetchExecCount();
     }
-  }, [authenticated, fetchTweets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets]);
+  }, [authenticated, fetchTweets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount]);
 
   const handleLogin = async () => {
     if (!password.trim() || loginLoading) return;
@@ -943,6 +983,19 @@ const HustleAdmin = () => {
                 Accounts the bot will interact with in the next 24 hours. Manual targets are processed first.
               </p>
 
+              {recentExecCount >= 4 && (
+                <div className={`glass rounded-lg p-3 flex items-center gap-2 text-[10px] font-mono mb-3 ${
+                  recentExecCount >= 5
+                    ? "text-destructive border border-destructive/30"
+                    : "text-yellow-400 border border-yellow-500/30"
+                }`}>
+                  <AlertCircle className="w-3 h-3" />
+                  {recentExecCount >= 5
+                    ? "⚠️ Rate limit reached — 5/5 manual executions this hour. Wait before executing more."
+                    : `⚠️ Approaching rate limit — ${recentExecCount}/5 manual executions this hour.`}
+                </div>
+              )}
+
               {nextTargets.length === 0 ? (
                 <div className="glass rounded-lg p-6 text-center text-muted-foreground text-sm">
                   No upcoming sessions. All targets have been followed or Discovery Mode will find new ones.
@@ -963,9 +1016,23 @@ const HustleAdmin = () => {
                             {(target.source || "manual").toUpperCase()}
                           </span>
                         </div>
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          Priority: {target.priority ?? 0}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            P:{target.priority ?? 0}
+                          </span>
+                          <Button
+                            size="sm"
+                            disabled={executingId === target.id || recentExecCount >= 5}
+                            onClick={() => handleExecuteNow(target)}
+                            className="h-7 text-[10px] px-2 bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20"
+                          >
+                            {executingId === target.id ? (
+                              <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Executing...</>
+                            ) : (
+                              <>⚡️ Execute Now</>
+                            )}
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
                   ))}
