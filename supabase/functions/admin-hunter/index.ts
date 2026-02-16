@@ -108,7 +108,14 @@ async function summarizeIntel(handle: string, rawIntel: string, lovableKey: stri
         messages: [
           {
             role: "system",
-            content: `You are an intelligence analyst for crypto twitter. Summarize the following raw search data about @${handle} into a tight tactical dossier (max 400 chars). Focus on: their trading style, recent wins/losses, signature narratives, personality traits, and any controversy. Be specific — names, tokens, dates. No fluff.`,
+            content: `You are an intelligence analyst for crypto twitter. Summarize the following raw search data about @${handle} into a tight tactical dossier (max 400 chars). Focus on: their trading style, signature narratives, personality traits, and posting behavior.
+
+CRITICAL VERIFICATION RULES:
+- ONLY include financial figures (losses, gains, hacks) if the data EXPLICITLY names @${handle} as the person/entity who experienced that event.
+- If a search result mentions a hack, exploit, or loss, verify it is about @${handle} specifically — NOT general industry news that appeared near their name.
+- When in doubt about ANY number or event, DO NOT include it. Focus on style, tone, and behavior instead.
+- Never attribute industry-wide events (protocol hacks, exchange collapses) to an individual unless the data explicitly confirms their direct involvement.
+Be specific about what you CAN verify. No fluff. No fabricated numbers.`,
           },
           { role: "user", content: rawIntel },
         ],
@@ -153,6 +160,8 @@ ${dossier ? `TARGET DOSSIER ON @${handle}:\n${dossier}` : `No specific intel —
 RULES:
 - You are roasting a specific titan of crypto twitter. NEVER use generic insults like "your alpha is mid" without specifics.
 - ${dossier ? "Reference their SPECIFIC style, recent takes, wins/losses from the dossier." : "Make sharp, educated assumptions about their style."}
+- FACT-CHECK MANDATE: NEVER cite specific dollar amounts, hack figures, or financial losses unless the dossier EXPLICITLY confirms @${handle} personally experienced that event. Industry hacks (Euler, FTX, Luna, etc.) must NOT be attributed to individuals unless proven.
+- If unsure about ANY specific number or event, roast their STYLE, posting habits, engagement farming, or general 'mid' energy instead. Vague but savage > specific but wrong.
 - Use lowercase. crypto-slang: ct, pvp, rotation, bags, alpha, degen, ser, ngmi, wagmi, mid, peak, based.
 - Be the kind of brutally witty that makes them WANT to quote-tweet you.
 - Tweet MUST start with @${handle}.
