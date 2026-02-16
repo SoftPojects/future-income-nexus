@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
+const MODEL_PREMIUM = "anthropic/claude-3.5-sonnet";
+const MODEL_FREE = "google/gemini-2.0-flash-exp:free";
 
 const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, compute. You are NOT a robot.";
 
@@ -201,11 +202,39 @@ serve(async (req) => {
           contextInstruction = `give a witty, arrogant reply. flex on them. make it memorable.`;
       }
 
+      // Step 1: Use FREE model to check if mention is worth a quality reply
+      const classResp = await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL_FREE,
+          max_tokens: 5,
+          messages: [
+            { role: "system", content: "Reply ONLY 'yes' or 'no'. Is this tweet worth a thoughtful reply? (not spam, not just emojis, has substance)" },
+            { role: "user", content: mention.content },
+          ],
+        }),
+      });
+
+      let worthReplying = true;
+      if (classResp.ok) {
+        const cd = await classResp.json();
+        const verdict = cd.choices?.[0]?.message?.content?.trim().toLowerCase() || "yes";
+        if (verdict.startsWith("no")) { worthReplying = false; }
+      }
+
+      if (!worthReplying) {
+        spamSkipped++;
+        await sb.from("x_mentions").update({ replied: true }).eq("id", mention.id);
+        continue;
+      }
+
+      // Step 2: Use PREMIUM model for the actual high-quality reply
       const aiResp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: MODEL,
+          model: MODEL_PREMIUM,
           messages: [
             {
               role: "system",

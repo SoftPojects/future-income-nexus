@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "deepseek/deepseek-chat";
+const MODEL = "google/gemini-2.0-flash-exp:free";
 
 const PERSONA_BANNED = "NEVER say: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms.";
 
@@ -109,7 +109,7 @@ mock them. tell them to buy $HCORE. lowercase, crypto slang. ${PERSONA_BANNED}`;
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 100,
+        max_tokens: 70,
         messages: [
           { role: "system", content: systemPrompt },
           ...chatHistory,
