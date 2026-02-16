@@ -6,57 +6,40 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const MODEL = "anthropic/claude-3.5-sonnet";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(OPENROUTER_URL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
+      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: MODEL,
         messages: [
           {
             role: "system",
-            content: `You are HustleCore's market intelligence module. Output ONLY a single terminal log line, no quotes, no explanation. Format: [DATA]: message. The message should describe a plausible real-world crypto, AI, or tech market trend or data point from 2026. Be specific with names (Solana, Ethereum, OpenAI, HuggingFace, etc), metrics (TVL, volume, APY, market cap), and numbers. Sound like a live data feed from a trading terminal. Max 140 chars. No emojis. Examples: "[DATA]: Solana TVL surged 12% overnight — scanning for arbitrage windows on Jupiter DEX..." or "[DATA]: GPT-5 API pricing dropped 40% — recalculating prompt-farming profit margins..."`,
+            content: `you are HustleCore's market intelligence feed. output ONLY a single terminal log line. format: [DATA]: message. describe a plausible 2026 crypto/AI/tech market trend or data point. be specific with names (Solana, Ethereum, Jupiter, Raydium, etc), metrics (TVL, volume, APY), and numbers. sound like a live trading terminal. max 140 chars. no emojis. lowercase preferred.`,
           },
-          {
-            role: "user",
-            content: "Generate a fresh market insight log entry.",
-          },
+          { role: "user", content: "generate a fresh market data log entry." },
         ],
       }),
     });
 
     if (!response.ok) {
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limited" }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required" }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const t = await response.text();
-      console.error("AI error:", response.status, t);
-      throw new Error("AI gateway error");
+      if (response.status === 429) return new Response(JSON.stringify({ error: "Rate limited" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (response.status === 402) return new Response(JSON.stringify({ error: "Payment required" }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      throw new Error("OpenRouter error");
     }
 
     const data = await response.json();
     let message = data.choices?.[0]?.message?.content?.trim() || "";
-
-    // Ensure it starts with [DATA]:
-    if (!message.startsWith("[DATA]")) {
-      message = `[DATA]: ${message}`;
-    }
+    if (!message.startsWith("[DATA]")) message = `[DATA]: ${message}`;
 
     return new Response(JSON.stringify({ message }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
