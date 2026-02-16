@@ -530,6 +530,35 @@ serve(async (req) => {
       }
     }
 
+    // ─── PREMIUM MEDIA POST CHECK (1 in 4 tweets) ───
+    const FAL_KEY = Deno.env.get("FAL_KEY");
+    const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
+    const shouldBePremium = FAL_KEY && ELEVENLABS_API_KEY && isPrimeTime && !isDepleted && Math.random() < 0.25;
+
+    if (shouldBePremium && tweetType !== "hunter") {
+      console.log("[SCHEDULE] PREMIUM ENTITY POST triggered (1/4 chance)");
+      try {
+        const mediaResult = await sb.functions.invoke("generate-media-post", {
+          body: { mode: "premium" },
+        });
+        if (mediaResult.data?.success) {
+          await sb.from("agent_logs").insert({ message: `[SCHEDULE]: Premium Entity Post deployed instead of regular tweet.` });
+          return new Response(JSON.stringify({
+            success: true,
+            posted: true,
+            content: mediaResult.data.content,
+            type: "premium",
+            scheduleLabel: "🎬 PREMIUM ENTITY POST",
+            model: PREMIUM_MODEL,
+            isPrimeTime: true,
+            mediaPost: true,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+      } catch (mediaErr) {
+        console.error("Premium post failed, falling back to regular:", mediaErr);
+      }
+    }
+
     // ─── SCHEDULE WITH JITTER ───
     const now = new Date();
     const scheduledAt = addJitter(now);

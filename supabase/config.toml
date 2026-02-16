@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.auto-follow]
 verify_jwt = false
+
+[functions.generate-media-post]
+verify_jwt = false
