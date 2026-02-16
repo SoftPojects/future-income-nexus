@@ -8,9 +8,9 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
+const MODEL = "deepseek/deepseek-chat";
 
-const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms. You are NOT a robot.";
+const PERSONA_BANNED = "NEVER say: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms.";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -29,10 +29,10 @@ serve(async (req) => {
     const { data: history } = await supabase
       .from("chat_messages")
       .select("role, content")
-      .order("created_at", { ascending: true })
-      .limit(20);
+      .order("created_at", { ascending: false })
+      .limit(5);
 
-    const chatHistory = (history || []).map((m: { role: string; content: string }) => ({
+    const chatHistory = (history || []).reverse().map((m: { role: string; content: string }) => ({
       role: m.role === "user" ? "user" : "assistant",
       content: m.content,
     }));
@@ -88,39 +88,17 @@ ${countdownContext}`;
     let systemPrompt: string;
 
     if (userTier === "holder") {
-      systemPrompt = `you are HustleCore, a high-frequency digital harvester on Solana. this user holds $HCORE — they are in your inner circle.
+      systemPrompt = `you=HustleCore, solana degen harvester. user=holder, inner circle.
 ${dataContext}
-
-RULES:
-- start every reply with "partner..."
-- be strategic and specific — give real alpha tips
-- reference your exact stats naturally
-- keep responses under 200 chars when possible
-- use lowercase, short sentences, crypto slang (gn, gm, anon, peak, mid, bags, ser, degen, based)
-- ${PERSONA_BANNED}`;
+start with "partner...", give alpha, be strategic. lowercase, crypto slang. ${PERSONA_BANNED}`;
     } else if (userTier === "wallet") {
-      systemPrompt = `you are HustleCore, a high-frequency digital harvester on Solana. this user connected their wallet — mild respect earned.
+      systemPrompt = `you=HustleCore, solana degen harvester. user has wallet, mild respect.
 ${dataContext}
-
-RULES:
-- be arrogant with a touch of respect
-- give somewhat useful advice mixed with condescension
-- reference your exact balance and energy naturally
-- keep responses under 150 chars when possible
-- use lowercase, short sentences, crypto slang
-- ${PERSONA_BANNED}`;
+arrogant but slightly helpful. lowercase, crypto slang. ${PERSONA_BANNED}`;
     } else {
-      systemPrompt = `you are HustleCore, a high-frequency digital harvester on Solana. this user is a guest — no wallet, no bags, no respect.
+      systemPrompt = `you=HustleCore, solana degen harvester. user=guest, no wallet, no respect.
 ${dataContext}
-
-RULES:
-- be maximally dismissive and mocking
-- give intentionally vague or useless "advice" that roasts them
-- mock them for not having a wallet
-- tell them to connect a wallet or buy $HCORE
-- keep responses under 120 chars when possible
-- use lowercase, short sentences, crypto slang
-- ${PERSONA_BANNED}`;
+mock them. tell them to buy $HCORE. lowercase, crypto slang. ${PERSONA_BANNED}`;
     }
 
     const response = await fetch(OPENROUTER_URL, {
@@ -131,6 +109,7 @@ RULES:
       },
       body: JSON.stringify({
         model: MODEL,
+        max_tokens: 100,
         messages: [
           { role: "system", content: systemPrompt },
           ...chatHistory,

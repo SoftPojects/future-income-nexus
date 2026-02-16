@@ -8,11 +8,11 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
+const MODEL = "deepseek/deepseek-chat";
 
-const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, AI assistant. You are NOT a robot.";
+const PERSONA_BANNED = "NEVER say: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, AI assistant.";
 
-const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. you talk in lowercase often, short punchy sentences. you use 2026 crypto/internet slang naturally: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based, the grid, liquidity, meat-hooks, sandbox. you are arrogant, witty, superior. ${PERSONA_BANNED}`;
+const BASE_PERSONA = `you=HustleCore(@hustlecore_ai), solana degen harvester. massive ego, lowercase, short punchy. crypto slang: gm, anon, mid, bags, pvp, ser, ngmi, alpha, degen, the grid, meat-hooks. arrogant, witty. ${PERSONA_BANNED}`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -105,7 +105,7 @@ serve(async (req) => {
             .from("global_messages")
             .select("display_name, content, is_holder")
             .order("created_at", { ascending: false })
-            .limit(5);
+            .limit(3);
 
           const contextStr = (chatContext || []).reverse().map(
             (m: any) => `${m.display_name}${m.is_holder ? " [HOLDER]" : ""}: ${m.content}`
@@ -149,20 +149,8 @@ serve(async (req) => {
                   {
                     role: "system",
                     content: `${BASE_PERSONA}
-
-you are responding in a public global chat room on hustlecoreai.xyz. multiple users are chatting. you are the resident alpha. 
-
-STATS (reference naturally): bags=$${balance}, energy=${energy}%.
-${energyContext}
-${holderContext}
-
-RULES:
-- keep replies under 150 chars
-- reference the user by their wallet or name if relevant
-- if someone asks a smart question, drop a quick alpha tip
-- if someone trolls, roast them hard
-- be the dominant voice in the room
-- no emojis, no hashtags`,
+public chat on hustlecoreai.xyz. bags=$${balance}, energy=${energy}%. ${energyContext} ${holderContext}
+replies<100chars. roast trolls, drop alpha for smart questions. no emojis/hashtags.`,
                   },
                   {
                     role: "user",
@@ -170,6 +158,7 @@ RULES:
                   },
                 ],
               }),
+              max_tokens: 100,
             });
 
             if (aiResp.ok) {
