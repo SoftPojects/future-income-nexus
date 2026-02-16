@@ -28,14 +28,38 @@ serve(async (req) => {
       });
     }
 
-    // Trim text to save credits (max 200 chars)
-    const trimmedText = text.slice(0, 200);
+    // Compress text via Gemini Flash (free) — max 150 chars, punchy & arrogant
+    let trimmedText = text.slice(0, 300);
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (LOVABLE_API_KEY && trimmedText.length > 150) {
+      try {
+        const compressResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-lite",
+            messages: [
+              { role: "system", content: "Compress this to under 150 characters. Keep the same tone — cold, arrogant, robotic. Output ONLY the compressed text, nothing else." },
+              { role: "user", content: trimmedText },
+            ],
+          }),
+        });
+        if (compressResp.ok) {
+          const cd = await compressResp.json();
+          const compressed = cd.choices?.[0]?.message?.content?.trim();
+          if (compressed && compressed.length <= 150) trimmedText = compressed;
+          else trimmedText = trimmedText.slice(0, 150);
+        }
+      } catch { trimmedText = trimmedText.slice(0, 150); }
+    } else {
+      trimmedText = trimmedText.slice(0, 150);
+    }
 
-    // Brian voice — cold, mechanical male
+    // Brian voice — cold, mechanical male (PERMANENT identity)
     const voiceId = "nPczCjzI2devNBz1zQrb";
 
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_22050_32`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
       {
         method: "POST",
         headers: {

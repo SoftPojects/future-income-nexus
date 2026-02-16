@@ -255,7 +255,7 @@ serve(async (req) => {
     console.log("[MEDIA] Generating audio via ElevenLabs...");
     // Pre-process text with Gemini to keep it short (save credits)
     let audioText = tweetText;
-    if (audioText.length > 200) {
+    if (audioText.length > 150) {
       const trimResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
@@ -269,17 +269,42 @@ serve(async (req) => {
       });
       if (trimResp.ok) {
         const td = await trimResp.json();
-        audioText = td.choices?.[0]?.message?.content?.trim() || audioText;
+        audioText = td.choices?.[0]?.message?.content?.trim() || audioText.slice(0, 150);
       }
     }
 
-    // For whale tribute, use a specific script
+    // For whale tribute, use a specific script (pre-compressed to <150 chars)
     if (mode === "whale_tribute" && donorAddress) {
       const shortAddr = donorAddress.length > 8 ? `${donorAddress.slice(0, 4)}...${donorAddress.slice(-4)}` : donorAddress;
-      audioText = `${shortAddr}. your tribute is accepted. you are now part of the grid. stay rich, meat-hook.`;
+      audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
     }
 
-    const ttsResp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+    // Compress audio text to max 150 chars via Gemini (free)
+    if (LOVABLE_API_KEY && audioText.length > 150) {
+      try {
+        const compResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash-lite",
+            messages: [
+              { role: "system", content: "Compress to under 150 characters. Keep cold, arrogant, robotic tone. Output ONLY the text." },
+              { role: "user", content: audioText },
+            ],
+          }),
+        });
+        if (compResp.ok) {
+          const cd = await compResp.json();
+          const compressed = cd.choices?.[0]?.message?.content?.trim();
+          if (compressed && compressed.length <= 150) audioText = compressed;
+          else audioText = audioText.slice(0, 150);
+        }
+      } catch { audioText = audioText.slice(0, 150); }
+    } else if (audioText.length > 150) {
+      audioText = audioText.slice(0, 150);
+    }
+
+    const ttsResp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128`, {
       method: "POST",
       headers: {
         "xi-api-key": ELEVENLABS_API_KEY,
