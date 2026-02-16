@@ -149,10 +149,11 @@ serve(async (req) => {
     }
 
     throw new Error("Unknown action: " + action);
-  } catch (e) {
-    console.error("manage-agent error:", e);
+  } catch (e: any) {
+    const msg = e?.message || (typeof e === "string" ? e : JSON.stringify(e) || "Unknown error");
+    console.error("manage-agent error:", { message: msg, details: e?.details || "", hint: e?.hint || "", code: e?.code || "" });
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
+      JSON.stringify({ error: msg }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
