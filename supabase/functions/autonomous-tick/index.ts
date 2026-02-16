@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "z-ai/glm-4.5-air:free";
+const MODEL = "deepseek/deepseek-chat";
+const FALLBACK_MODEL = "google/gemini-flash-1.5";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });

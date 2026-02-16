@@ -7,7 +7,8 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "z-ai/glm-4.5-air:free";
+const MODEL = "deepseek/deepseek-chat";
+const FALLBACK_MODEL = "google/gemini-flash-1.5";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -16,29 +17,37 @@ serve(async (req) => {
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
-    console.log(`[COST] generate-market-insight using MODEL=${MODEL} (FREE)`);
+    console.log(`[COST] generate-market-insight using MODEL=${MODEL}`);
 
-    const response = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 60,
-        messages: [
-          {
-            role: "system",
-            content: `output ONE terminal log line. format: [DATA]: message. 2026 crypto market data. specific names/numbers. max 140 chars. lowercase.`,
-          },
-          { role: "user", content: "generate market data log." },
-        ],
-      }),
-    });
+    const makeRequest = async (model: string) => {
+      return await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 60,
+          messages: [
+            {
+              role: "system",
+              content: `output ONE terminal log line. format: [DATA]: message. 2026 crypto market data. specific names/numbers. max 140 chars. lowercase.`,
+            },
+            { role: "user", content: "generate market data log." },
+          ],
+        }),
+      });
+    };
+
+    let response = await makeRequest(MODEL);
+
+    if (!response.ok) {
+      console.warn(`[FALLBACK] generate-market-insight primary model failed (${response.status}), trying ${FALLBACK_MODEL}`);
+      response = await makeRequest(FALLBACK_MODEL);
+    }
 
     if (!response.ok) {
       const errBody = await response.text();
       console.error(`[ERROR] generate-market-insight status=${response.status} body=${errBody}`);
       if (response.status === 429) return new Response(JSON.stringify({ error: "Rate limited" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (response.status === 402) return new Response(JSON.stringify({ error: "Payment required" }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       throw new Error(`OpenRouter error: ${response.status}`);
     }
 
