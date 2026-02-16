@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { GLOBAL_CHAT_MODEL, logModelUsage } from "@/lib/ai-models";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 import { useSmartScroll } from "@/hooks/useSmartScroll";
+import VoiceSpeakButton from "@/components/VoiceSpeakButton";
 
 interface GlobalMessage {
   id: string;
@@ -17,9 +18,13 @@ interface GlobalMessage {
 
 interface GlobalChatProps {
   userInfo: HcoreTokenInfo;
+  voicePlayback?: {
+    playText: (text: string, id: string) => void;
+    playingId: string | null;
+  };
 }
 
-const GlobalChat = ({ userInfo }: GlobalChatProps) => {
+const GlobalChat = ({ userInfo, voicePlayback }: GlobalChatProps) => {
   const [messages, setMessages] = useState<GlobalMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -93,6 +98,10 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
     return msg.display_name === userInfo.displayName;
   };
 
+  const isAgentMessage = (msg: GlobalMessage) => {
+    return msg.display_name === "HUSTLECORE" || msg.display_name === "hustlecore_ai";
+  };
+
   const getNameColor = (msg: GlobalMessage) => {
     if (msg.is_holder) return "text-yellow-400";
     if (msg.wallet_address) return "text-neon-cyan";
@@ -137,6 +146,14 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
               </span>
               <span className="text-muted-foreground mx-1">:</span>
               <span className="text-foreground">{msg.content}</span>
+              {isAgentMessage(msg) && voicePlayback && (
+                <VoiceSpeakButton
+                  text={msg.content}
+                  id={`global-${msg.id}`}
+                  playingId={voicePlayback.playingId}
+                  onPlay={voicePlayback.playText}
+                />
+              )}
             </motion.div>
           ))}
         </AnimatePresence>

@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.generate-media-post]
 verify_jwt = false
+
+[functions.tts-speak]
+verify_jwt = false

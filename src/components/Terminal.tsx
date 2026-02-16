@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal as TerminalIcon, Send, MessageSquare, Globe, Loader2, Lock } from "lucide-react";
+import { Terminal as TerminalIcon, Send, MessageSquare, Globe, Loader2, Lock, Volume2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { GLOBAL_CHAT_MODEL, logModelUsage } from "@/lib/ai-models";
 import type { AgentState } from "@/hooks/useAgentStateMachine";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 import GlobalChat from "@/components/GlobalChat";
+import VoiceSpeakButton from "@/components/VoiceSpeakButton";
 import { useSmartScroll } from "@/hooks/useSmartScroll";
 
 interface ChatMessage {
@@ -19,9 +20,15 @@ interface TerminalProps {
   logs: string[];
   agentState: AgentState;
   userInfo: HcoreTokenInfo;
+  voicePlayback?: {
+    playText: (text: string, id: string) => void;
+    playingId: string | null;
+    autoPlay: boolean;
+    toggleAutoPlay: () => void;
+  };
 }
 
-const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
+const Terminal = ({ logs, agentState, userInfo, voicePlayback }: TerminalProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<TabMode>("logs");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -108,6 +115,23 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
           [{agentState}]
         </span>
 
+        {/* Neural Voice toggle */}
+        {voicePlayback && (
+          <motion.button
+            className={`px-1.5 py-0.5 rounded text-[8px] font-mono flex items-center gap-1 border transition-colors ${
+              voicePlayback.autoPlay
+                ? "border-neon-green/50 text-neon-green bg-neon-green/10"
+                : "border-border text-muted-foreground hover:text-neon-cyan hover:border-neon-cyan/40"
+            }`}
+            onClick={voicePlayback.toggleAutoPlay}
+            whileTap={{ scale: 0.9 }}
+            title="Neural Voice Guidance"
+          >
+            <Volume2 className="w-2.5 h-2.5" />
+            VOICE
+          </motion.button>
+        )}
+
         {/* Tab buttons */}
         <div className="ml-auto flex items-center gap-1">
           {tabs.map((tab) => (
@@ -136,7 +160,7 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
 
       {/* Content area */}
       {activeTab === "global" ? (
-        <GlobalChat userInfo={userInfo} />
+        <GlobalChat userInfo={userInfo} voicePlayback={voicePlayback} />
       ) : (
         <>
           <div
@@ -174,9 +198,19 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
                             : "bg-neon-magenta/10 border border-neon-magenta/30 text-neon-magenta"
                         }`}
                       >
-                        <span className="text-[9px] text-muted-foreground block mb-1">
-                          {msg.role === "user" ? "YOU" : "HUSTLECORE"}
-                        </span>
+                        <div className="flex items-center gap-1 mb-1">
+                          <span className="text-[9px] text-muted-foreground">
+                            {msg.role === "user" ? "YOU" : "HUSTLECORE"}
+                          </span>
+                          {msg.role === "agent" && voicePlayback && (
+                            <VoiceSpeakButton
+                              text={msg.content}
+                              id={`chat-${i}`}
+                              playingId={voicePlayback.playingId}
+                              onPlay={voicePlayback.playText}
+                            />
+                          )}
+                        </div>
                         {msg.content}
                       </div>
                     </motion.div>
@@ -206,15 +240,23 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
                   {logs.map((line, i) => (
                     <motion.div
                       key={`${i}-${line}`}
-                      className={`font-mono ${getLineColor(line)}`}
+                      className={`font-mono flex items-start ${getLineColor(line)}`}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <span className="text-muted-foreground mr-2 text-[10px]">
+                      <span className="text-muted-foreground mr-2 text-[10px] shrink-0">
                         {String(i + 1).padStart(3, "0")}
                       </span>
-                      {line}
+                      <span className="flex-1">{line}</span>
+                      {voicePlayback && (
+                        <VoiceSpeakButton
+                          text={line}
+                          id={`log-${i}`}
+                          playingId={voicePlayback.playingId}
+                          onPlay={voicePlayback.playText}
+                        />
+                      )}
                     </motion.div>
                   ))}
                   <motion.span
