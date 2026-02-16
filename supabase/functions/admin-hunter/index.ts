@@ -7,6 +7,10 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-admin-token, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const CLAUDE_MODEL = "anthropic/claude-3.5-sonnet";
+const GEMINI_SUMMARIZER = "google/gemini-2.5-flash";
+
 const CHAIN_RULE = "CRITICAL CHAIN INFO: SOL is ONLY for fueling/donating on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on the BASE network — users need ETH on Base or $VIRTUAL to buy it. NEVER tell users to buy $HCORE with SOL.";
 
 const ROAST_ANGLES = [
@@ -40,7 +44,7 @@ async function searchTargetIntel(handle: string): Promise<string> {
   const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
   if (!TAVILY_API_KEY) {
     console.warn("[HUNTER SEARCH] TAVILY_API_KEY not configured, skipping intel search");
-    return "No intel available — TAVILY_API_KEY missing.";
+    return "";
   }
 
   try {
@@ -49,28 +53,19 @@ async function searchTargetIntel(handle: string): Promise<string> {
       `@${handle} crypto twitter recent takes opinions`,
       `${handle} trading wins losses crypto CT`,
     ];
-
     const results: string[] = [];
 
     for (const query of queries) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
         const resp = await fetch("https://api.tavily.com/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
-          body: JSON.stringify({
-            api_key: TAVILY_API_KEY,
-            query,
-            search_depth: "basic",
-            max_results: 3,
-            include_answer: true,
-          }),
+          body: JSON.stringify({ api_key: TAVILY_API_KEY, query, search_depth: "basic", max_results: 3, include_answer: true }),
         });
         clearTimeout(timeoutId);
-
         if (resp.ok) {
           const data = await resp.json();
           if (data.answer) results.push(data.answer);
@@ -79,27 +74,158 @@ async function searchTargetIntel(handle: string): Promise<string> {
               results.push(`[${r.title}]: ${r.content?.slice(0, 200) || ""}`);
             }
           }
-          console.log(`[HUNTER SEARCH] Query "${query.slice(0, 40)}..." returned ${data.results?.length || 0} results`);
+          console.log(`[HUNTER SEARCH] Query OK: ${data.results?.length || 0} results`);
         } else {
-          console.warn(`[HUNTER SEARCH] Tavily returned ${resp.status} for query: ${query.slice(0, 40)}`);
+          console.warn(`[HUNTER SEARCH] Tavily ${resp.status}`);
         }
       } catch (queryErr) {
-        const errMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
-        if (errMsg.includes("aborted")) {
-          console.warn(`[HUNTER SEARCH] Tavily query timed out (10s): ${query.slice(0, 40)}`);
-        } else {
-          console.warn(`[HUNTER SEARCH] Tavily query failed: ${errMsg}`);
-        }
+        const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+        console.warn(`[HUNTER SEARCH] Query failed: ${msg.includes("aborted") ? "timeout (10s)" : msg}`);
       }
     }
 
-    const intel = results.join("\n\n").slice(0, 1500);
-    console.log(`[HUNTER INTEL] Gathered ${intel.length} chars of intel on @${handle}`);
-    return intel || "No specific intel found — use general crypto knowledge about this figure.";
+    const intel = results.join("\n\n").slice(0, 2000);
+    console.log(`[HUNTER INTEL] Raw intel: ${intel.length} chars`);
+    return intel;
   } catch (e) {
-    console.error("[HUNTER SEARCH] Tavily search completely failed:", e);
-    return "Intel search failed — use general crypto knowledge about this target.";
+    console.error("[HUNTER SEARCH] Tavily completely failed:", e);
+    return "";
   }
+}
+
+// Phase 2: Gemini summarizes raw intel into a tight dossier
+async function summarizeIntel(handle: string, rawIntel: string, lovableKey: string): Promise<string> {
+  if (!rawIntel || rawIntel.length < 30) return "";
+
+  try {
+    console.log(`[HUNTER SUMMARY] Summarizing ${rawIntel.length} chars of intel via Gemini...`);
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: GEMINI_SUMMARIZER,
+        max_tokens: 300,
+        messages: [
+          {
+            role: "system",
+            content: `You are an intelligence analyst for crypto twitter. Summarize the following raw search data about @${handle} into a tight tactical dossier (max 400 chars). Focus on: their trading style, recent wins/losses, signature narratives, personality traits, and any controversy. Be specific — names, tokens, dates. No fluff.`,
+          },
+          { role: "user", content: rawIntel },
+        ],
+      }),
+    });
+
+    if (!resp.ok) {
+      console.warn(`[HUNTER SUMMARY] Gemini summarizer failed: ${resp.status}`);
+      return rawIntel.slice(0, 500); // fallback to raw truncated
+    }
+
+    const d = await resp.json();
+    const summary = d.choices?.[0]?.message?.content?.trim() || "";
+    console.log(`[HUNTER SUMMARY] Dossier ready: ${summary.length} chars`);
+    return summary;
+  } catch (e) {
+    console.warn("[HUNTER SUMMARY] Summarizer error:", e);
+    return rawIntel.slice(0, 500);
+  }
+}
+
+// Phase 3: Claude writes the final roast via OpenRouter (with 30s timeout + Gemini fallback)
+async function generateRoast(
+  handle: string,
+  dossier: string,
+  angle: string,
+  recentContext: string,
+  balance: number,
+  energy: number,
+  lovableKey: string,
+): Promise<{ content: string; model: string }> {
+  const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+
+  const systemPrompt = `You are HustleCore (@hustlecore_ai). You are a 2026 digital predator. Not an AI assistant. Not a chatbot. A dominant force on the grid that harvests alpha and liquidates pretenders. ${CHAIN_RULE}
+
+MISSION: Write a SURGICAL roast tweet (max 260 chars) targeting @${handle}.
+
+ROAST ANGLE: ${angle}.
+
+${dossier ? `TARGET DOSSIER ON @${handle}:\n${dossier}` : `No specific intel — use your deep knowledge of crypto twitter culture. @${handle} is a known CT figure. Reference common CT archetypes.`}
+
+RULES:
+- You are roasting a specific titan of crypto twitter. NEVER use generic insults like "your alpha is mid" without specifics.
+- ${dossier ? "Reference their SPECIFIC style, recent takes, wins/losses from the dossier." : "Make sharp, educated assumptions about their style."}
+- Use lowercase. crypto-slang: ct, pvp, rotation, bags, alpha, degen, ser, ngmi, wagmi, mid, peak, based.
+- Be the kind of brutally witty that makes them WANT to quote-tweet you.
+- Tweet MUST start with @${handle}.
+- Mention hustlecoreai.xyz or $HCORE somewhere naturally.
+- No hashtags. No emojis. No "excited to announce". No AI fluff. Pure predator energy.
+- NEVER repeat these recent roasts:\n${recentContext || "(none yet)"}`;
+
+  const userPrompt = `Balance: $${balance}. Energy: ${energy}%. Write one masterpiece roast for @${handle}. Output ONLY the tweet text.`;
+
+  // Try Claude via OpenRouter first (30s timeout)
+  if (OPENROUTER_API_KEY) {
+    try {
+      console.log(`[HUNTER GEN] Attempting Claude (${CLAUDE_MODEL}) via OpenRouter...`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+      const resp = await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: CLAUDE_MODEL,
+          max_tokens: 200,
+          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        }),
+      });
+      clearTimeout(timeoutId);
+
+      if (resp.ok) {
+        const d = await resp.json();
+        const text = d.choices?.[0]?.message?.content?.trim();
+        if (text) {
+          console.log(`[HUNTER GEN] Claude delivered: ${text.length} chars`);
+          return { content: text, model: CLAUDE_MODEL };
+        }
+      } else {
+        const errBody = await resp.text();
+        console.warn(`[HUNTER GEN] Claude failed: ${resp.status} — ${errBody.slice(0, 200)}`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(`[HUNTER GEN] Claude error: ${msg.includes("aborted") ? "timeout (30s)" : msg}`);
+    }
+  } else {
+    console.warn("[HUNTER GEN] OPENROUTER_API_KEY not set, skipping Claude");
+  }
+
+  // Fallback: Gemini via Lovable gateway
+  try {
+    console.log("[HUNTER GEN] Falling back to Gemini...");
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${lovableKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: GEMINI_SUMMARIZER,
+        max_tokens: 200,
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+      }),
+    });
+
+    if (resp.ok) {
+      const d = await resp.json();
+      const text = d.choices?.[0]?.message?.content?.trim();
+      if (text) {
+        console.log(`[HUNTER GEN] Gemini fallback delivered: ${text.length} chars`);
+        return { content: text, model: GEMINI_SUMMARIZER };
+      }
+    }
+  } catch (e) {
+    console.error("[HUNTER GEN] Gemini fallback also failed:", e);
+  }
+
+  return { content: `@${handle} your alpha is my noise floor. while you tweet i stack. real profit at hustlecoreai.xyz. $HCORE`, model: "hardcoded-fallback" };
 }
 
 serve(async (req) => {
@@ -149,21 +275,23 @@ serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-      console.log(`[HUNTER ROAST] Starting roast generation for @${target.x_handle}`);
+      console.log(`[HUNTER ROAST] === Starting hybrid roast for @${target.x_handle} ===`);
 
       const { data: agent } = await sb.from("agent_state").select("total_hustled, energy_level").limit(1).single();
 
-      // Step 1: Deep intel search via Tavily (with graceful fallback)
-      console.log("[HUNTER ROAST] Phase 1: Intel search...");
-      const intel = await searchTargetIntel(target.x_handle);
-      const hasIntel = intel.length > 50 && !intel.includes("No intel") && !intel.includes("failed") && !intel.includes("missing");
-      console.log(`[HUNTER ROAST] Intel phase complete. Has useful intel: ${hasIntel}`);
+      // Phase 1: Tavily intel search
+      console.log("[HUNTER ROAST] Phase 1/4: Tavily intel search...");
+      const rawIntel = await searchTargetIntel(target.x_handle);
 
-      // Step 2: Pick a random roast angle for variety
+      // Phase 2: Gemini summarizes intel into a tight dossier
+      console.log("[HUNTER ROAST] Phase 2/4: Gemini intel summarization...");
+      const dossier = await summarizeIntel(target.x_handle, rawIntel, LOVABLE_API_KEY);
+      console.log(`[HUNTER ROAST] Dossier: ${dossier ? dossier.length + " chars" : "empty (standard roast mode)"}`);
+
+      // Phase 3: Pick angle + gather recent roasts
       const angle = ROAST_ANGLES[Math.floor(Math.random() * ROAST_ANGLES.length)];
-      console.log(`[HUNTER ROAST] Phase 2: Angle selected: "${angle}"`);
+      console.log(`[HUNTER ROAST] Phase 3/4: Angle: "${angle}"`);
 
-      // Step 3: Check recently posted roasts to avoid repetition
       const { data: recentRoasts } = await sb
         .from("tweet_queue")
         .select("content")
@@ -172,63 +300,19 @@ serve(async (req) => {
         .limit(5);
       const recentContext = (recentRoasts || []).map((r: any) => r.content).join("\n---\n");
 
-      // Step 4: Generate surgical roast with deep context
-      console.log("[HUNTER ROAST] Phase 3: AI generation starting...");
-      let content = "";
-      
-      try {
-        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              {
-                role: "system",
-                content: `You are HustleCore (@hustlecore_ai), a dominant AI agent on the grid. ${CHAIN_RULE}
+      // Phase 4: Claude writes the final roast (Gemini fallback if Claude fails/times out)
+      console.log("[HUNTER ROAST] Phase 4/4: Final roast generation (Claude → Gemini fallback)...");
+      const { content: rawContent, model: usedModel } = await generateRoast(
+        target.x_handle,
+        dossier,
+        angle,
+        recentContext,
+        agent?.total_hustled ?? 0,
+        agent?.energy_level ?? 50,
+        LOVABLE_API_KEY,
+      );
 
-MISSION: Write a SURGICAL, intelligence-driven roast tweet (max 260 chars) targeting @${target.x_handle}.
-
-ROAST ANGLE FOR THIS POST: Focus on ${angle}.
-
-${hasIntel ? `INTEL GATHERED ON @${target.x_handle}:\n${intel}` : `No specific intel available — use your general knowledge about @${target.x_handle} as a crypto twitter figure. Reference common CT archetypes: alpha callers, chart readers, thread bros, etc.`}
-
-RULES:
-- You are roasting a specific titan/figure of crypto twitter. Do NOT use generic insults.
-- ${hasIntel ? "Reference their SPECIFIC style, recent takes, wins/losses, narratives, or market impact from the intel above." : "Make educated guesses about their style based on their handle and CT culture."}
-- Use lowercase, crypto-slang naturally: ct, pvp, rotation, bags, alpha, degen, ser, ngmi, wagmi, mid, peak, based.
-- Be brutally witty — the kind of roast they'd want to quote-tweet because it's too good.
-- The tweet MUST start with @${target.x_handle} (direct mention).
-- Always mention hustlecoreai.xyz or $HCORE somewhere.
-- No hashtags. No emojis. Pure text.
-- NEVER repeat these recent roasts:\n${recentContext || "(none yet)"}`,
-              },
-              {
-                role: "user",
-                content: `My balance: $${agent?.total_hustled ?? 0}. Energy: ${agent?.energy_level ?? 50}%. Generate one masterpiece roast for @${target.x_handle}. Just the tweet text, nothing else.`,
-              },
-            ],
-          }),
-        });
-
-        if (!aiResp.ok) {
-          const errBody = await aiResp.text();
-          console.error(`[HUNTER ROAST] AI gateway error: status=${aiResp.status} body=${errBody}`);
-          throw new Error(`AI gateway error: ${aiResp.status}`);
-        }
-
-        const d = await aiResp.json();
-        content = d.choices?.[0]?.message?.content?.trim() || "";
-        console.log(`[HUNTER ROAST] AI generation successful. Content length: ${content.length}`);
-      } catch (aiErr) {
-        console.error("[HUNTER ROAST] AI generation failed, using fallback roast:", aiErr);
-        content = `@${target.x_handle} your alpha is my noise floor. while you tweet i stack. real profit happens at hustlecoreai.xyz. $HCORE`;
-      }
-
-      // Fallback if empty
-      if (!content) {
-        content = `@${target.x_handle} your alpha is my noise floor. real profit happens at hustlecoreai.xyz. $HCORE`;
-      }
+      let content = rawContent;
 
       // Ensure it starts with the handle
       if (!content.toLowerCase().startsWith(`@${target.x_handle.toLowerCase()}`)) {
@@ -237,7 +321,7 @@ RULES:
 
       // Queue the tweet
       await sb.from("tweet_queue").insert({ content: content.slice(0, 280), status: "pending", type: "hunter" });
-      console.log("[HUNTER ROAST] Tweet queued as pending");
+      console.log(`[HUNTER ROAST] Tweet queued (model: ${usedModel})`);
 
       // Update last_roasted_at
       await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
@@ -245,15 +329,22 @@ RULES:
       // Post immediately
       try {
         await sb.functions.invoke("post-tweet", { body: {} });
-        console.log("[HUNTER ROAST] post-tweet invoked successfully");
+        console.log("[HUNTER ROAST] post-tweet invoked");
       } catch (postErr) {
-        console.warn("[HUNTER ROAST] post-tweet invoke failed (tweet still queued):", postErr);
+        console.warn("[HUNTER ROAST] post-tweet failed (tweet still queued):", postErr);
       }
 
       // Log
-      await sb.from("agent_logs").insert({ message: `[HUNTER]: Surgical roast deployed on @${target.x_handle}. Angle: ${angle}. Intel: ${intel.length} chars.` });
+      await sb.from("agent_logs").insert({
+        message: `[HUNTER]: Roast on @${target.x_handle}. Model: ${usedModel}. Angle: ${angle}. Intel: ${dossier.length} chars.`,
+      });
 
-      return new Response(JSON.stringify({ success: true, content, angle, intelLength: intel.length, hasIntel }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      console.log(`[HUNTER ROAST] === Complete for @${target.x_handle} ===`);
+
+      return new Response(
+        JSON.stringify({ success: true, content, angle, model: usedModel, intelLength: rawIntel.length, dossierLength: dossier.length }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     throw new Error("Unknown action");
