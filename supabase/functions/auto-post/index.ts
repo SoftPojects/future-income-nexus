@@ -61,7 +61,7 @@ serve(async (req) => {
     let tweetType = "automated";
 
     if (isDepleted) {
-      // Depleted tweet — beg for SOL
+      console.log(`[COST] auto-post FINAL_POST_PREP: depleted tweet using MODEL=${MODEL} (PAID - X post)`);
       const aiResp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
@@ -108,7 +108,7 @@ serve(async (req) => {
       }
 
       if (isHunterPost && target) {
-        // Hunter/roast tweet targeting a specific agent
+        console.log(`[COST] auto-post FINAL_POST_PREP: hunter tweet @${target.x_handle} using MODEL=${MODEL} (PAID - X post)`);
         const aiResp = await fetch(OPENROUTER_URL, {
           method: "POST",
           headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
@@ -135,8 +135,8 @@ serve(async (req) => {
         await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
         await sb.from("agent_logs").insert({ message: `[HUNTER]: locked on @${target.x_handle}. deploying roast.` });
       } else {
-        // Content diversity — pick a random style
         const style = CONTENT_STYLES[Math.floor(Math.random() * CONTENT_STYLES.length)];
+        console.log(`[COST] auto-post FINAL_POST_PREP: ${style.name} tweet using MODEL=${MODEL} (PAID - X post)`);
 
         const aiResp = await fetch(OPENROUTER_URL, {
           method: "POST",

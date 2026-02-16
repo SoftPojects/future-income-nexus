@@ -202,7 +202,7 @@ serve(async (req) => {
           contextInstruction = `give a witty, arrogant reply. flex on them. make it memorable.`;
       }
 
-      // Step 1: Use FREE model to check if mention is worth a quality reply
+      console.log(`[COST] auto-reply STEP1: spam-check using MODEL=${MODEL_FREE} (FREE) for @${mention.author_handle}`);
       const classResp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
@@ -229,7 +229,7 @@ serve(async (req) => {
         continue;
       }
 
-      // Step 2: Use PREMIUM model for the actual high-quality reply
+      console.log(`[COST] auto-reply STEP2: FINAL_POST_PREP using MODEL=${MODEL_PREMIUM} (PAID) for @${mention.author_handle}`);
       const aiResp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },

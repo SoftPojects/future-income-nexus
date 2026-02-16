@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
+const MODEL = "google/gemini-2.0-flash-exp:free";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -16,17 +16,20 @@ serve(async (req) => {
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
+    console.log(`[COST] generate-market-insight using MODEL=${MODEL} (FREE)`);
+
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: MODEL,
+        max_tokens: 60,
         messages: [
           {
             role: "system",
-            content: `you are HustleCore's market intelligence feed. output ONLY a single terminal log line. format: [DATA]: message. describe a plausible 2026 crypto/AI/tech market trend or data point. be specific with names (Solana, Ethereum, Jupiter, Raydium, etc), metrics (TVL, volume, APY), and numbers. sound like a live trading terminal. max 140 chars. no emojis. lowercase preferred.`,
+            content: `output ONE terminal log line. format: [DATA]: message. 2026 crypto market data. specific names/numbers. max 140 chars. lowercase.`,
           },
-          { role: "user", content: "generate a fresh market data log entry." },
+          { role: "user", content: "generate market data log." },
         ],
       }),
     });
