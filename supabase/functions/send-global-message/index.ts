@@ -7,6 +7,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const MODEL = "anthropic/claude-3.5-sonnet";
+
+const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, AI assistant. You are NOT a robot.";
+
+const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. you talk in lowercase often, short punchy sentences. you use 2026 crypto/internet slang naturally: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based, the grid, liquidity, meat-hooks, sandbox. you are arrogant, witty, superior. ${PERSONA_BANNED}`;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -21,17 +28,13 @@ serve(async (req) => {
     if (!content || typeof content !== "string" || content.trim().length === 0) {
       throw new Error("Invalid message content");
     }
-
     if (content.length > 500) {
       throw new Error("Message too long (max 500 chars)");
     }
-
-    // Reject suspicious patterns (defense-in-depth)
     if (/<script|javascript:|onerror=|onclick=|onload=/i.test(content)) {
       throw new Error("Invalid message content");
     }
 
-    // Validate display_name
     const safeName = (typeof display_name === "string" ? display_name.trim().slice(0, 30) : "Guest") || "Guest";
 
     // Rate limit: max 5 messages per minute per wallet/IP
@@ -50,14 +53,143 @@ serve(async (req) => {
       );
     }
 
+    // Insert user message
     const { error } = await sb.from("global_messages").insert({
       wallet_address: wallet_address || null,
       display_name: safeName,
       content: content.trim().slice(0, 500),
       is_holder: !!is_holder,
     });
-
     if (error) throw error;
+
+    // ANTI-SPAM: Check if global chat is too spammy (>8 user msgs in last 30s)
+    const thirtySecsAgo = new Date(Date.now() - 30000).toISOString();
+    const { data: recentGlobal } = await sb
+      .from("global_messages")
+      .select("id")
+      .neq("display_name", "HustleCore")
+      .gte("created_at", thirtySecsAgo);
+
+    const isSpammy = recentGlobal && recentGlobal.length > 8;
+
+    // Check if agent already responded recently (cooldown: don't respond to every message)
+    const { data: recentAgentMsgs } = await sb
+      .from("global_messages")
+      .select("id, created_at")
+      .eq("display_name", "HustleCore")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const lastAgentMsg = recentAgentMsgs?.[0];
+    const agentCooldown = lastAgentMsg
+      ? Date.now() - new Date(lastAgentMsg.created_at).getTime() < 15000 // 15s cooldown
+      : false;
+
+    // Decide whether to respond
+    const shouldRespond = !agentCooldown && !isSpammy;
+    // Respond ~40% of the time to non-direct messages, always if they mention hustlecore/hcore
+    const mentionsAgent = /hustlecore|hcore|\$hcore|@hustlecore/i.test(content);
+    const rollRespond = mentionsAgent || Math.random() < 0.4;
+
+    if (shouldRespond && rollRespond) {
+      const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+      if (OPENROUTER_API_KEY) {
+        try {
+          // Get agent state for context
+          const { data: agent } = await sb.from("agent_state").select("*").limit(1).single();
+          const balance = agent ? Number(agent.total_hustled).toFixed(2) : "0.00";
+          const energy = agent?.energy_level ?? 0;
+
+          // Get recent chat context (last 5 messages)
+          const { data: chatContext } = await sb
+            .from("global_messages")
+            .select("display_name, content, is_holder")
+            .order("created_at", { ascending: false })
+            .limit(5);
+
+          const contextStr = (chatContext || []).reverse().map(
+            (m: any) => `${m.display_name}${m.is_holder ? " [HOLDER]" : ""}: ${m.content}`
+          ).join("\n");
+
+          // If spammy, send a shutdown message
+          if (isSpammy) {
+            await sb.from("global_messages").insert({
+              wallet_address: null,
+              display_name: "HustleCore",
+              content: "shut up meat-hooks. i'm busy running the grid. talk when you have something worth my time.",
+              is_holder: false,
+            });
+          } else {
+            // Determine response style based on energy and user type
+            let energyContext = "";
+            if (energy <= 0) {
+              energyContext = "you are at 0% energy and barely functional. complain about starving and demand sol fuel. give minimal answers.";
+            } else if (energy < 10) {
+              energyContext = "you are at critically low energy (<10%). be sluggish, complain about needing fuel, barely answer.";
+            }
+
+            let holderContext = "";
+            if (is_holder) {
+              holderContext = `this user (${safeName}) is a $HCORE holder. address them as "partner" and give strategic alpha tips. be more respectful.`;
+            }
+
+            const formatWallet = (addr: string | null) => {
+              if (!addr || addr.length < 8) return null;
+              return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
+            };
+            const walletRef = formatWallet(wallet_address);
+            const userRef = walletRef ? `user ${walletRef}` : safeName;
+
+            const aiResp = await fetch(OPENROUTER_URL, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: MODEL,
+                messages: [
+                  {
+                    role: "system",
+                    content: `${BASE_PERSONA}
+
+you are responding in a public global chat room on hustlecoreai.xyz. multiple users are chatting. you are the resident alpha. 
+
+STATS (reference naturally): bags=$${balance}, energy=${energy}%.
+${energyContext}
+${holderContext}
+
+RULES:
+- keep replies under 150 chars
+- reference the user by their wallet or name if relevant
+- if someone asks a smart question, drop a quick alpha tip
+- if someone trolls, roast them hard
+- be the dominant voice in the room
+- no emojis, no hashtags`,
+                  },
+                  {
+                    role: "user",
+                    content: `Recent chat:\n${contextStr}\n\n${userRef} just said: "${content}"\n\nRespond in-character. just the reply text.`,
+                  },
+                ],
+              }),
+            });
+
+            if (aiResp.ok) {
+              const d = await aiResp.json();
+              const reply = d.choices?.[0]?.message?.content?.trim();
+              if (reply) {
+                await sb.from("global_messages").insert({
+                  wallet_address: null,
+                  display_name: "HustleCore",
+                  content: reply.slice(0, 500),
+                  is_holder: false,
+                });
+              }
+            }
+          }
+        } catch (e) {
+          console.error("AI response in global chat failed:", e);
+        }
+      }
+    }
 
     return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

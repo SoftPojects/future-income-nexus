@@ -68,7 +68,7 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
       localStorage.setItem("hustlecore_private_chat", JSON.stringify(withReply));
     } catch (e) {
       console.error("Chat error:", e);
-      const withError = [...updated, { role: "agent" as const, content: "Neural link interrupted. Try again, carbon-lifeform." }];
+      const withError = [...updated, { role: "agent" as const, content: "grid connection dropped. try again meat-hooks." }];
       setChatMessages(withError);
       localStorage.setItem("hustlecore_private_chat", JSON.stringify(withError));
     } finally {
@@ -179,17 +179,20 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
                       </div>
                     </motion.div>
                   ))}
-                  {isLoading && (
-                    <motion.div
-                      className="flex justify-start"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                    >
-                      <div className="bg-neon-magenta/10 border border-neon-magenta/30 rounded-lg px-3 py-2">
-                        <Loader2 className="w-3 h-3 text-neon-magenta animate-spin" />
-                      </div>
-                    </motion.div>
-                  )}
+                    {isLoading && (
+                      <motion.div
+                        className="flex justify-start"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                      >
+                        <div className="bg-neon-magenta/10 border border-neon-magenta/30 rounded-lg px-3 py-2 flex items-center gap-2">
+                          <Loader2 className="w-3 h-3 text-neon-magenta animate-spin" />
+                          <span className="text-[9px] font-mono text-neon-magenta animate-pulse">
+                            Decoding Matrix...
+                          </span>
+                        </div>
+                      </motion.div>
+                    )}
                 </motion.div>
               ) : (
                 <motion.div
