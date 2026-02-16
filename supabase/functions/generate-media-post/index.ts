@@ -213,7 +213,8 @@ serve(async (req) => {
 
     // ─── STEP 2: Generate image via FAL Flux ───
     console.log("[MEDIA] Generating image via FAL...");
-    const falResp = await fetch("https://fal.run/fal-ai/flux/dev", {
+    const imageSize = mode === "whale_tribute" ? { width: 1024, height: 1024 } : { width: 1024, height: 768 };
+    const falResp = await fetch("https://fal.run/fal-ai/flux/schnell", {
       method: "POST",
       headers: {
         Authorization: `Key ${FAL_KEY}`,
@@ -221,8 +222,9 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         prompt: imagePrompt,
-        image_size: "landscape_16_9",
+        image_size: imageSize,
         num_images: 1,
+        num_inference_steps: 4,
       }),
     });
 
