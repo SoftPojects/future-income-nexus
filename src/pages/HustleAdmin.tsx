@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,6 +56,8 @@ interface SocialLog {
 // Slot 3 (US Afternoon):  UTC 20:00-21:30
 function getScheduleLabel(scheduledAt: string, type: string): { label: string; isPrime: boolean } {
   if (type === "breaking") return { label: "🚨 BREAKING NEWS", isPrime: true };
+  if (type === "premium") return { label: "🎬 PREMIUM ENTITY POST", isPrime: true };
+  if (type === "whale_tribute") return { label: "🐋 WHALE TRIBUTE", isPrime: true };
   if (type === "manual") return { label: "MANUAL POST", isPrime: false };
   if (type === "trend") return { label: "TREND INTEL", isPrime: false };
 
@@ -112,6 +114,7 @@ const HustleAdmin = () => {
   const [generating, setGenerating] = useState(false);
   const [posting, setPosting] = useState(false);
   const [apiStatus, setApiStatus] = useState<"unknown" | "connected" | "error">("unknown");
+  const [mediaStatus, setMediaStatus] = useState<"ready" | "rendering" | "error">("ready");
   const [syncing, setSyncing] = useState(false);
   const [autopilot, setAutopilot] = useState(true);
 
@@ -546,6 +549,18 @@ const HustleAdmin = () => {
             )}
             <span className="text-[10px] font-mono text-muted-foreground">
               X API: {apiStatus.toUpperCase()}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Film className={`w-3.5 h-3.5 ${
+              mediaStatus === "rendering" ? "text-yellow-400 animate-pulse" :
+              mediaStatus === "error" ? "text-destructive" : "text-neon-cyan"
+            }`} />
+            <span className={`text-[10px] font-mono ${
+              mediaStatus === "rendering" ? "text-yellow-400" :
+              mediaStatus === "error" ? "text-destructive" : "text-muted-foreground"
+            }`}>
+              MEDIA: {mediaStatus === "rendering" ? "RENDERING..." : mediaStatus.toUpperCase()}
             </span>
           </div>
           <Button variant="ghost" size="sm" onClick={() => (window.location.href = "/")}>

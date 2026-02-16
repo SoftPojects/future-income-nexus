@@ -150,9 +150,18 @@ serve(async (req) => {
 
     // Trigger donation tweet with the verified on-chain sender address
     try {
-      await supabase.functions.invoke("sol-donation-tweet", {
-        body: { amount: amountSol, walletAddress: senderAddress },
-      });
+      // WHALE TRIBUTE: If donation >= 0.05 SOL, trigger premium media tribute
+      if (amountSol >= 0.05) {
+        console.log(`[WHALE TRIBUTE] ${amountSol} SOL from ${senderAddress} — triggering media tribute`);
+        await supabase.functions.invoke("generate-media-post", {
+          body: { mode: "whale_tribute", donorAddress: senderAddress, donorAmount: amountSol },
+        });
+      } else {
+        // Regular donation tweet
+        await supabase.functions.invoke("sol-donation-tweet", {
+          body: { amount: amountSol, walletAddress: senderAddress },
+        });
+      }
     } catch (e) {
       console.error("Donation tweet trigger failed:", e);
     }
