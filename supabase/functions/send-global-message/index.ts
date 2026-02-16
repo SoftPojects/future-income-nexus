@@ -8,8 +8,8 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "deepseek/deepseek-chat";
-const FALLBACK_MODEL = "google/gemini-flash-1.5";
+const MODEL = "google/gemini-2.5-flash";
+const FALLBACK_MODEL = "google/gemini-2.5-flash-lite";
 
 const PERSONA_BANNED = "NEVER say: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, AI assistant.";
 

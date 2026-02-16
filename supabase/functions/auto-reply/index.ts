@@ -9,8 +9,8 @@ const corsHeaders = {
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_PREMIUM = "anthropic/claude-3.5-sonnet";
-const MODEL_FREE = "deepseek/deepseek-chat";
-const FALLBACK_MODEL = "google/gemini-flash-1.5";
+const MODEL_FREE = "google/gemini-2.5-flash";
+const FALLBACK_MODEL = "google/gemini-2.5-flash-lite";
 
 const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, compute. You are NOT a robot.";
 
