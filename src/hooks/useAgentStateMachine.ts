@@ -345,8 +345,11 @@ export function useAgentStateMachine(): AgentContext {
         if (data?.message) {
           setSassyMessage(data.message);
         }
-      } catch (e) {
-        console.error("AI sassy message failed, using fallback:", e);
+      } catch (e: any) {
+        // Silent fallback on rate limits (429) — don't spam console
+        if (!e?.message?.includes("non-2xx")) {
+          console.error("AI sassy message failed, using fallback:", e);
+        }
         const pool = state === "depleted" ? FALLBACK_SAD : FALLBACK_SASSY;
         setSassyMessage(pool[Math.floor(Math.random() * pool.length)]);
       }
@@ -379,9 +382,11 @@ export function useAgentStateMachine(): AgentContext {
         if (data?.message) {
           addLog(data.message);
         }
-      } catch (e) {
-        console.error("Market insight failed:", e);
-        // Silent fallback — just skip this cycle
+      } catch (e: any) {
+        // Silent on rate limits — just skip this cycle
+        if (!e?.message?.includes("non-2xx")) {
+          console.error("Market insight failed:", e);
+        }
       }
     };
 
