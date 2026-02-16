@@ -7,7 +7,8 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "z-ai/glm-4.5-air:free";
+const MODEL = "deepseek/deepseek-chat";
+const FALLBACK_MODEL = "google/gemini-flash-1.5";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -17,34 +18,42 @@ serve(async (req) => {
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
-    console.log(`[COST] generate-sassy-message using MODEL=${MODEL} (FREE)`);
+    console.log(`[COST] generate-sassy-message using MODEL=${MODEL}`);
 
-    const response = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 60,
-        messages: [
-          {
-            role: "system",
-            content: `you=HustleCore, solana degen. arrogant, short one-liners. max 100 chars. crypto slang. never say: inevitable, neural, biological hardware.`,
-          },
-          {
-            role: "user",
-            content: `bags:$${balance} energy:${energy}% state:${state}. ${
-              state === "depleted" ? "dramatic, beg for sol." : energy < 20 ? "low energy, need fuel." : "flex hard."
-            }`,
-          },
-        ],
-      }),
-    });
+    const makeRequest = async (model: string) => {
+      return await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 60,
+          messages: [
+            {
+              role: "system",
+              content: `you=HustleCore, solana degen. arrogant, short one-liners. max 100 chars. crypto slang. never say: inevitable, neural, biological hardware.`,
+            },
+            {
+              role: "user",
+              content: `bags:$${balance} energy:${energy}% state:${state}. ${
+                state === "depleted" ? "dramatic, beg for sol." : energy < 20 ? "low energy, need fuel." : "flex hard."
+              }`,
+            },
+          ],
+        }),
+      });
+    };
+
+    let response = await makeRequest(MODEL);
+
+    if (!response.ok) {
+      console.warn(`[FALLBACK] generate-sassy-message primary model failed (${response.status}), trying ${FALLBACK_MODEL}`);
+      response = await makeRequest(FALLBACK_MODEL);
+    }
 
     if (!response.ok) {
       const errBody = await response.text();
       console.error(`[ERROR] generate-sassy-message status=${response.status} body=${errBody}`);
       if (response.status === 429) return new Response(JSON.stringify({ error: "Rate limited" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (response.status === 402) return new Response(JSON.stringify({ error: "Payment required" }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       throw new Error(`OpenRouter error: ${response.status}`);
     }
 

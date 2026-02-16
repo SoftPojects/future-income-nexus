@@ -8,7 +8,8 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "z-ai/glm-4.5-air:free";
+const MODEL = "deepseek/deepseek-chat";
+const FALLBACK_MODEL = "google/gemini-flash-1.5";
 
 const PERSONA_BANNED = "NEVER say: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms.";
 
@@ -101,33 +102,38 @@ ${dataContext}
 mock them. tell them to buy $HCORE. lowercase, crypto slang. ${PERSONA_BANNED}`;
     }
 
-    console.log(`[COST] agent-chat using MODEL=${MODEL} (FREE) tier=${userTier}`);
-    const response = await fetch(OPENROUTER_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 70,
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...chatHistory,
-          { role: "user", content: message },
-        ],
-      }),
-    });
+    console.log(`[COST] agent-chat using MODEL=${MODEL} tier=${userTier}`);
+
+    const makeRequest = async (model: string) => {
+      return await fetch(OPENROUTER_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 70,
+          messages: [
+            { role: "system", content: systemPrompt },
+            ...chatHistory,
+            { role: "user", content: message },
+          ],
+        }),
+      });
+    };
+
+    let response = await makeRequest(MODEL);
+
+    if (!response.ok) {
+      console.warn(`[FALLBACK] agent-chat primary model failed (${response.status}), trying ${FALLBACK_MODEL}`);
+      response = await makeRequest(FALLBACK_MODEL);
+    }
 
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limited" }), {
           status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Payment required" }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       throw new Error("OpenRouter error");
