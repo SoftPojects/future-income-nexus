@@ -173,14 +173,24 @@ serve(async (req) => {
     // Post the tweet
     let result = await postToTwitter(finalContent);
 
-    // If 403 and content has @ mentions, retry without @ symbols
+    // If 403 and content has @ mentions, try soft-tag formats before stripping
     if (!result.success && result.error?.includes("403") && finalContent.includes("@")) {
-      console.log("403 with @ mentions detected, retrying without @ symbols...");
-      const strippedContent = finalContent.replace(/@(\w+)/g, "$1");
-      result = await postToTwitter(strippedContent);
+      console.log("403 with @ mentions detected, trying soft-tag format...");
+      // Try 1: Soft tag with leading dot (. @handle)
+      let softContent = finalContent.replace(/@(\w+)/g, ". @$1");
+      result = await postToTwitter(softContent);
       if (result.success) {
-        finalContent = strippedContent;
+        finalContent = softContent;
         await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
+      } else {
+        // Try 2: Strip @ entirely as last resort
+        console.log("Soft-tag failed, stripping @ symbols...");
+        const strippedContent = finalContent.replace(/@(\w+)/g, "$1");
+        result = await postToTwitter(strippedContent);
+        if (result.success) {
+          finalContent = strippedContent;
+          await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
+        }
       }
     }
 
