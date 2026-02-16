@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Activity, Wifi, Twitter, Menu, X, Wallet, Github } from "lucide-react";
+import { Activity, Wifi, Twitter, Menu, X, Wallet, Github, Radio } from "lucide-react";
 import { toast } from "sonner";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -29,6 +29,7 @@ import HuntingIndicator from "@/components/HuntingIndicator";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 import { useHcoreToken } from "@/hooks/useHcoreToken";
 import { useAudioSystem } from "@/hooks/useAudioSystem";
+import { useVoicePlayback } from "@/hooks/useVoicePlayback";
 import { supabase } from "@/integrations/supabase/client";
 
 /** Mobile wallet button that closes the sheet first, then opens custom wallet modal */
@@ -73,6 +74,7 @@ const Index = () => {
   const agent = useAgentStateMachine();
   const userInfo = useHcoreToken();
   const audio = useAudioSystem();
+  const voice = useVoicePlayback();
   const { publicKey } = useWallet();
   const [feedOpen, setFeedOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -83,6 +85,7 @@ const Index = () => {
   const [isDonor, setIsDonor] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const prevLogCount = useRef(0);
+  const vocalModulesLoggedRef = useRef(false);
 
   useEffect(() => {
     supabase
@@ -107,13 +110,25 @@ const Index = () => {
       .then(({ data }) => setIsDonor(!!(data && data.length > 0)));
   }, [publicKey]);
 
-  // Play blip on new terminal log
+  // Play blip on new terminal log + auto-play voice
   useEffect(() => {
     if (agent.logs.length > prevLogCount.current && prevLogCount.current > 0) {
       audio.playBlip();
+      const latestLog = agent.logs[agent.logs.length - 1];
+      if (latestLog) voice.enqueueAutoPlay(latestLog);
     }
     prevLogCount.current = agent.logs.length;
-  }, [agent.logs.length, audio.playBlip]);
+  }, [agent.logs.length, audio.playBlip, voice.enqueueAutoPlay]);
+
+  // Log vocal modules initialization once
+  useEffect(() => {
+    if (!vocalModulesLoggedRef.current && agent.logs.length > 3) {
+      vocalModulesLoggedRef.current = true;
+      setTimeout(() => {
+        agent.addLog("[SYSTEM]: Vocal modules initialized. I can finally speak to the meat-hooks.");
+      }, 5000);
+    }
+  }, [agent.logs.length]);
 
   // Play power-up on donation confirmed (energy surge)
   useEffect(() => {
@@ -289,8 +304,34 @@ const Index = () => {
         <SolGoalWidget />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <Terminal logs={agent.logs} agentState={agent.state} userInfo={userInfo} />
+        <div className="lg:col-span-2 space-y-2">
+            {/* VOICE FEED indicator */}
+            <motion.div
+              className="flex items-center gap-2 px-3 py-1.5 glass rounded-lg w-fit"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+            >
+              <motion.div
+                animate={{ scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              >
+                <Radio className="w-3.5 h-3.5 text-neon-green" />
+              </motion.div>
+              <span className="text-[9px] font-mono font-bold tracking-widest text-neon-green text-glow-green">
+                VOICE FEED: ONLINE
+              </span>
+            </motion.div>
+            <Terminal
+              logs={agent.logs}
+              agentState={agent.state}
+              userInfo={userInfo}
+              voicePlayback={{
+                playText: voice.playText,
+                playingId: voice.playingId,
+                autoPlay: voice.autoPlay,
+                toggleAutoPlay: voice.toggleAutoPlay,
+              }}
+            />
           </div>
 
           <motion.div
