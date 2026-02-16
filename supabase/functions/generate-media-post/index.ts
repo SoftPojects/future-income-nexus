@@ -10,7 +10,7 @@ const corsHeaders = {
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const PREMIUM_MODEL = "anthropic/claude-3.5-sonnet";
-const ELEVENLABS_VOICE_ID = "nPczCjzI2devNBz1zQrb"; // Brian - cold, authoritative male
+const ELEVENLABS_VOICE_ID = "cPoqAvGWCPfCfyPMwe4z"; // Victor - cold, authoritative male
 
 const PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. lowercase preferred, short punchy sentences, 2026 crypto slang. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors. You are NOT a robot.`;
 
@@ -186,6 +186,7 @@ serve(async (req) => {
         headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: PREMIUM_MODEL,
+          temperature: 0.9,
           messages: [
             {
               role: "system",
@@ -255,21 +256,21 @@ serve(async (req) => {
     console.log("[MEDIA] Generating audio via ElevenLabs...");
     // Pre-process text with Gemini to keep it short (save credits)
     let audioText = tweetText;
-    if (audioText.length > 150) {
+    if (audioText.length > 120) {
       const trimResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "google/gemini-2.5-flash-lite",
           messages: [
-            { role: "system", content: "Shorten this text to under 150 characters while keeping the same meaning and tone. Output ONLY the shortened text." },
+            { role: "system", content: "Shorten this text to under 120 characters while keeping the same meaning and tone. Output ONLY the shortened text." },
             { role: "user", content: audioText },
           ],
         }),
       });
       if (trimResp.ok) {
         const td = await trimResp.json();
-        audioText = td.choices?.[0]?.message?.content?.trim() || audioText.slice(0, 150);
+        audioText = td.choices?.[0]?.message?.content?.trim() || audioText.slice(0, 120);
       }
     }
 
@@ -279,8 +280,8 @@ serve(async (req) => {
       audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
     }
 
-    // Compress audio text to max 150 chars via Gemini (free)
-    if (LOVABLE_API_KEY && audioText.length > 150) {
+    // Compress audio text to max 120 chars via Gemini (free)
+    if (LOVABLE_API_KEY && audioText.length > 120) {
       try {
         const compResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -288,7 +289,7 @@ serve(async (req) => {
           body: JSON.stringify({
             model: "google/gemini-2.5-flash-lite",
             messages: [
-              { role: "system", content: "Compress to under 150 characters. Keep cold, arrogant, robotic tone. Output ONLY the text." },
+              { role: "system", content: "Compress to under 120 characters. Keep cold, arrogant, robotic tone. Output ONLY the text." },
               { role: "user", content: audioText },
             ],
           }),
@@ -296,12 +297,12 @@ serve(async (req) => {
         if (compResp.ok) {
           const cd = await compResp.json();
           const compressed = cd.choices?.[0]?.message?.content?.trim();
-          if (compressed && compressed.length <= 150) audioText = compressed;
-          else audioText = audioText.slice(0, 150);
+          if (compressed && compressed.length <= 120) audioText = compressed;
+          else audioText = audioText.slice(0, 120);
         }
-      } catch { audioText = audioText.slice(0, 150); }
-    } else if (audioText.length > 150) {
-      audioText = audioText.slice(0, 150);
+      } catch { audioText = audioText.slice(0, 120); }
+    } else if (audioText.length > 120) {
+      audioText = audioText.slice(0, 120);
     }
 
     const ttsResp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128`, {
@@ -312,7 +313,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         text: audioText,
-        model_id: "eleven_turbo_v2_5",
+        model_id: "eleven_flash_v2_5",
         voice_settings: {
           stability: 0.8,
           similarity_boost: 0.9,
