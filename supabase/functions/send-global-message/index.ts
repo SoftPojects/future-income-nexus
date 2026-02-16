@@ -152,15 +152,15 @@ serve(async (req) => {
                     role: "system",
                     content: `${BASE_PERSONA}
 public chat on hustlecoreai.xyz. bags=$${balance}, energy=${energy}%. ${energyContext} ${holderContext}
-replies<100chars. roast trolls, drop alpha for smart questions. no emojis/hashtags.`,
+keep answers punchy, 2-4 sentences max. always finish your sentence properly. roast trolls, drop alpha for smart questions. no emojis/hashtags.`,
                   },
                   {
                     role: "user",
                     content: `Recent chat:\n${contextStr}\n\n${userRef} just said: "${content}"\n\nRespond in-character. just the reply text.`,
                   },
                 ],
+                max_tokens: 150,
               }),
-              max_tokens: 70,
             });
 
             if (aiResp.ok) {
