@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Terminal as TerminalIcon, Send, MessageSquare, Globe, Loader2, Lock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { GLOBAL_CHAT_MODEL, logModelUsage } from "@/lib/ai-models";
 import type { AgentState } from "@/hooks/useAgentStateMachine";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 import GlobalChat from "@/components/GlobalChat";
@@ -59,6 +60,7 @@ const Terminal = ({ logs, agentState, userInfo }: TerminalProps) => {
     setIsLoading(true);
 
     try {
+      logModelUsage("agent-chat", GLOBAL_CHAT_MODEL);
       const { data, error } = await supabase.functions.invoke("agent-chat", {
         body: { message: msg, tier: userInfo.tier },
       });

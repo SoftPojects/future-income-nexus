@@ -9,7 +9,7 @@ const corsHeaders = {
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_PREMIUM = "anthropic/claude-3.5-sonnet";
-const MODEL_FREE = "google/gemini-2.0-flash-exp:free";
+const MODEL_FREE = "z-ai/glm-4.5-air:free";
 
 const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, compute. You are NOT a robot.";
 

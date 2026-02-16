@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Loader2, Crown } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { GLOBAL_CHAT_MODEL, logModelUsage } from "@/lib/ai-models";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 import { useSmartScroll } from "@/hooks/useSmartScroll";
 
@@ -61,6 +62,7 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
     setIsSending(true);
 
     try {
+      logModelUsage("send-global-message", GLOBAL_CHAT_MODEL);
       const { error } = await supabase.functions.invoke("send-global-message", {
         body: {
           wallet_address: userInfo.walletAddress,
