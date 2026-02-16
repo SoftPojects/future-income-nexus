@@ -5,9 +5,9 @@
  */
 
 // Primary cheap model for all web chat and terminal log generation
-export const GLOBAL_CHAT_MODEL = "deepseek/deepseek-chat";
-export const LOGS_MODEL = "deepseek/deepseek-chat";
-export const FALLBACK_MODEL = "google/gemini-flash-1.5";
+export const GLOBAL_CHAT_MODEL = "google/gemini-2.5-flash";
+export const LOGS_MODEL = "google/gemini-2.5-flash";
+export const FALLBACK_MODEL = "google/gemini-2.5-flash-lite";
 
 // Premium model — ONLY used server-side for X posts and final replies
 export const X_POST_MODEL = "anthropic/claude-3.5-sonnet";
