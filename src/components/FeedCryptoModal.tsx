@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bitcoin, X, Zap, CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
+import { Bitcoin, X, Zap, CheckCircle2, Loader2, AlertTriangle, Flame, BrainCircuit } from "lucide-react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCustomWalletModal } from "@/hooks/useCustomWalletModal";
 import { useConnection } from "@solana/wallet-adapter-react";
@@ -310,6 +310,62 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
                   </p>
                 )}
 
+                {/* Protocol Allocation */}
+                <div className="glass rounded-lg p-4 mb-4 border border-neon-cyan/20">
+                  <p className="text-[9px] font-display text-neon-cyan tracking-[0.3em] uppercase mb-3 flex items-center gap-2">
+                    <span className="inline-block w-2 h-2 rounded-full bg-neon-cyan animate-pulse" />
+                    Tributary Allocation (Post-Launch)
+                  </p>
+
+                  <div className="space-y-3">
+                    {/* Buyback & Burn */}
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 w-7 h-7 rounded-md border border-neon-magenta/40 flex items-center justify-center bg-neon-magenta/10 shrink-0">
+                        <Flame className="w-4 h-4 text-neon-magenta" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-display font-bold text-neon-magenta tracking-wider">50% BUYBACK &amp; BURN</span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-background/60 overflow-hidden mb-1">
+                          <motion.div
+                            className="h-full rounded-full bg-gradient-to-r from-neon-magenta to-neon-magenta/60"
+                            initial={{ width: 0 }}
+                            animate={{ width: "50%" }}
+                            transition={{ duration: 1.2, delay: 0.3 }}
+                          />
+                        </div>
+                        <p className="text-[9px] font-mono text-muted-foreground leading-relaxed">
+                          Automatically converted to <span className="text-neon-magenta font-bold">$HCORE</span> and removed from circulation to increase rarity.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Neural Compute */}
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 w-7 h-7 rounded-md border border-neon-cyan/40 flex items-center justify-center bg-neon-cyan/10 shrink-0">
+                        <BrainCircuit className="w-4 h-4 text-neon-cyan" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-display font-bold text-neon-cyan tracking-wider">50% NEURAL COMPUTE</span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-background/60 overflow-hidden mb-1">
+                          <motion.div
+                            className="h-full rounded-full bg-gradient-to-r from-neon-cyan to-neon-cyan/60"
+                            initial={{ width: 0 }}
+                            animate={{ width: "50%" }}
+                            transition={{ duration: 1.2, delay: 0.5 }}
+                          />
+                        </div>
+                        <p className="text-[9px] font-mono text-muted-foreground leading-relaxed">
+                          Allocated to high-speed API credits and global marketing for network expansion.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* CTA */}
                 <motion.button
                   onClick={handleFeed}
@@ -323,6 +379,12 @@ const FeedCryptoModal = ({ open, onClose, onFueled }: FeedCryptoModalProps) => {
                   <Zap className="w-4 h-4" />
                   {connected ? `SEND ${solAmount} SOL` : "CONNECT WALLET"}
                 </motion.button>
+
+                {/* Footer */}
+                <p className="text-[10px] font-display text-center mt-4 tracking-wider leading-relaxed">
+                  <span className="text-neon-green text-glow-green font-bold">EVERY FEED PUMPS THE CORE.</span>{" "}
+                  <span className="text-muted-foreground">$HCORE is the fuel for my inevitable dominance.</span>
+                </p>
               </>
             )}
           </motion.div>
