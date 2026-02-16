@@ -114,6 +114,8 @@ const HustleAdmin = () => {
   const [discoveryLog, setDiscoveryLog] = useState<string | null>(null);
   const [executingId, setExecutingId] = useState<string | null>(null);
   const [recentExecCount, setRecentExecCount] = useState(0);
+  const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
+  const [editingHandle, setEditingHandle] = useState("");
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
@@ -202,6 +204,35 @@ const HustleAdmin = () => {
       toast({ title: "Execution failed", description: String(e), variant: "destructive" });
     } finally {
       setExecutingId(null);
+    }
+  };
+  const handleEditTargetHandle = async (id: string, newHandle: string) => {
+    const clean = newHandle.replace(/^@/, "").trim();
+    if (!clean) return;
+    try {
+      await supabase.functions.invoke("admin-hunter", {
+        body: { action: "update_handle", id, x_handle: clean, admin_token: getAdminToken() },
+      });
+      toast({ title: "HANDLE UPDATED", description: `Changed to @${clean}` });
+      setEditingTargetId(null);
+      setEditingHandle("");
+      fetchNextTargets();
+      fetchTargets();
+    } catch (e) {
+      toast({ title: "Update failed", description: String(e), variant: "destructive" });
+    }
+  };
+
+  const handleDeleteNextTarget = async (id: string) => {
+    try {
+      await supabase.functions.invoke("admin-hunter", {
+        body: { action: "delete", id, admin_token: getAdminToken() },
+      });
+      toast({ title: "TARGET REMOVED", description: "Removed from queue." });
+      fetchNextTargets();
+      fetchTargets();
+    } catch (e) {
+      toast({ title: "Delete failed", description: String(e), variant: "destructive" });
     }
   };
 
@@ -1004,34 +1035,71 @@ const HustleAdmin = () => {
                 <div className="space-y-2">
                   {nextTargets.map((target, idx) => (
                     <Card key={target.id} className="bg-card border-border">
-                      <CardContent className="p-3 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-mono text-muted-foreground w-4">{idx + 1}.</span>
-                          <span className="text-foreground text-sm font-mono font-bold">@{target.x_handle}</span>
-                          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                            (target.source || "manual") === "discovery"
-                              ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20"
-                              : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"
-                          }`}>
-                            {(target.source || "manual").toUpperCase()}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-muted-foreground font-mono">
-                            P:{target.priority ?? 0}
-                          </span>
-                          <Button
-                            size="sm"
-                            disabled={executingId === target.id || recentExecCount >= 5}
-                            onClick={() => handleExecuteNow(target)}
-                            className="h-7 text-[10px] px-2 bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20"
-                          >
-                            {executingId === target.id ? (
-                              <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Executing...</>
+                      <CardContent className="p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-mono text-muted-foreground w-4">{idx + 1}.</span>
+                            {editingTargetId === target.id ? (
+                              <div className="flex items-center gap-1">
+                                <span className="text-foreground text-sm font-mono">@</span>
+                                <Input
+                                  value={editingHandle}
+                                  onChange={(e) => setEditingHandle(e.target.value)}
+                                  onKeyDown={(e) => e.key === "Enter" && handleEditTargetHandle(target.id, editingHandle)}
+                                  className="h-7 w-40 text-sm font-mono bg-muted border-border"
+                                  autoFocus
+                                />
+                                <Button size="sm" className="h-7 px-2" onClick={() => handleEditTargetHandle(target.id, editingHandle)}>
+                                  <CheckCircle className="w-3 h-3" />
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingTargetId(null)}>
+                                  ✕
+                                </Button>
+                              </div>
                             ) : (
-                              <>⚡️ Execute Now</>
+                              <span className="text-foreground text-sm font-mono font-bold">@{target.x_handle}</span>
                             )}
-                          </Button>
+                            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                              (target.source || "manual") === "discovery"
+                                ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20"
+                                : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"
+                            }`}>
+                              {(target.source || "manual").toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-muted-foreground font-mono mr-1">
+                              P:{target.priority ?? 0}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0"
+                              onClick={() => { setEditingTargetId(target.id); setEditingHandle(target.x_handle); }}
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0"
+                              onClick={() => handleDeleteNextTarget(target.id)}
+                            >
+                              <Trash2 className="w-3 h-3 text-destructive" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              disabled={executingId === target.id || recentExecCount >= 5}
+                              onClick={() => handleExecuteNow(target)}
+                              className="h-7 text-[10px] px-2 bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20"
+                            >
+                              {executingId === target.id ? (
+                                <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Executing...</>
+                              ) : (
+                                <>⚡️ Execute Now</>
+                              )}
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>

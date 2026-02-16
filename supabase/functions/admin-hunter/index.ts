@@ -371,6 +371,14 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "update_handle") {
+      const handle = body.x_handle?.replace(/^@/, "").trim();
+      if (!handle) throw new Error("Missing x_handle");
+      const { error } = await sb.from("target_agents").update({ x_handle: handle }).eq("id", body.id);
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "drafts") {
       const { data: target } = await sb.from("target_agents").select("*").eq("id", body.id).single();
       if (!target) throw new Error("Target not found");

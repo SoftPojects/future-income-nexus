@@ -134,7 +134,7 @@ async function discoverNewTargets(sb: any): Promise<string[]> {
         messages: [
           {
             role: "system",
-            content: `You are a crypto social intelligence tool. Extract exactly 5 X/Twitter handles of trending AI agent projects or Base ecosystem influencers from the search data. Return ONLY the handles, one per line, without @ symbol. No explanations. Only real accounts you're confident exist. If you can't find 5, return fewer.`,
+            content: `You are a crypto social intelligence tool. Extract exactly 5 X/Twitter handles of trending AI agent projects or Base ecosystem influencers from the search data. CRITICAL: Return the EXACT X (Twitter) handle as it appears on the platform — not a brand name, not an abbreviation. Double-check each handle is the real, verified account. For example, use "Bankless" not "BanklessHQ" if that's the actual handle. Return ONLY the handles, one per line, without @ symbol. No explanations. If you're unsure about an exact handle, include your best guess but the user will verify. If you can't find 5, return fewer.`,
           },
           { role: "user", content: rawIntel },
         ],
