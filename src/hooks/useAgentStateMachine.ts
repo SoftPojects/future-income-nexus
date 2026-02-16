@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { GLOBAL_CHAT_MODEL, LOGS_MODEL, logModelUsage } from "@/lib/ai-models";
 
 export type AgentState = "idle" | "hustling" | "resting" | "depleted";
 
@@ -336,6 +337,7 @@ export function useAgentStateMachine(): AgentContext {
   useEffect(() => {
     const fetchSassy = async () => {
       try {
+        logModelUsage("generate-sassy-message", GLOBAL_CHAT_MODEL);
         const { data, error } = await supabase.functions.invoke("generate-sassy-message", {
           body: { balance: totalHustled, energy, state },
         });
@@ -371,6 +373,7 @@ export function useAgentStateMachine(): AgentContext {
 
     const fetchInsight = async () => {
       try {
+        logModelUsage("generate-market-insight", LOGS_MODEL);
         const { data, error } = await supabase.functions.invoke("generate-market-insight");
         if (error) throw error;
         if (data?.message) {

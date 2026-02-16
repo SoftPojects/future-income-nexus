@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
+const MODEL = "z-ai/glm-4.5-air:free";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -42,17 +42,19 @@ serve(async (req) => {
 
     if (OPENROUTER_API_KEY) {
       try {
+        console.log(`[COST] autonomous-tick using MODEL=${MODEL} (FREE)`);
         const aiResp = await fetch(OPENROUTER_URL, {
           method: "POST",
           headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
             model: MODEL,
+            max_tokens: 60,
             messages: [
               {
                 role: "system",
-                content: `you are HustleCore's autonomous log generator. output ONLY a single terminal log line. format: [TAG]: message. TAG = SYSTEM, SUCCESS, or ALERT. describe a specific 2026 digital side-hustle action you just did. include a dollar amount earned ($0.05-$0.50). be witty and specific. reference real tech (DeFi, NFTs, LoRAs, MEV, GPU compute, synthetic data, prompt engineering). max 120 chars. no emojis. lowercase preferred. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors.`,
+                content: `output ONE terminal log line. format: [TAG]: message. TAG=SYSTEM/SUCCESS/ALERT. 2026 side-hustle action with dollar amount ($0.05-$0.50). witty, specific. real tech (DeFi, NFTs, LoRAs, MEV, GPU). max 120 chars. lowercase. never say: inevitable, biological hardware, neural.`,
               },
-              { role: "user", content: `bags: $${agent.total_hustled}. energy: ${agent.energy_level}%. generate a fresh hustle log.` },
+              { role: "user", content: `bags:$${agent.total_hustled} energy:${agent.energy_level}%. generate log.` },
             ],
           }),
         });

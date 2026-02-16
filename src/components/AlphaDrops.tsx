@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Lock, Zap, ExternalLink, Loader2, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { GLOBAL_CHAT_MODEL, logModelUsage } from "@/lib/ai-models";
 import { VIRTUALS_URL } from "./CountdownBanner";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 
@@ -26,6 +27,7 @@ const AlphaDrops = ({ userInfo }: AlphaDropsProps) => {
     const fetchTips = async () => {
       setLoading(true);
       try {
+        logModelUsage("agent-chat (AlphaDrops)", GLOBAL_CHAT_MODEL);
         const { data, error } = await supabase.functions.invoke("agent-chat", {
           body: {
             message: "Give me 3 specific Level 2 hustle tips with numbers and actionable steps",
