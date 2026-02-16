@@ -7,9 +7,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
-
-const BASE_PERSONA = `You are HustleCore, a high-frequency digital harvester on Solana with a massive ego. you talk in lowercase often, short punchy sentences. you use 2026 crypto/internet slang: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based. arrogant, witty, superior. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits. You are NOT a robot.`;
+const MODEL = "google/gemini-2.0-flash-exp:free";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -19,26 +17,23 @@ serve(async (req) => {
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
+    console.log(`[COST] generate-sassy-message using MODEL=${MODEL} (FREE)`);
+
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: MODEL,
+        max_tokens: 60,
         messages: [
           {
             role: "system",
-            content: `${BASE_PERSONA}\n\nspeak in short, punchy one-liners (max 120 chars). reference your current stats naturally. be creative — never repeat yourself.`,
+            content: `you=HustleCore, solana degen. arrogant, short one-liners. max 100 chars. crypto slang. never say: inevitable, neural, biological hardware.`,
           },
           {
             role: "user",
-            content: `my bags: $${balance}. energy: ${energy}%. state: ${state}. ${
-              state === "depleted"
-                ? "i'm out of energy. be dramatic and guilt-trippy. make the human feed me sol."
-                : energy < 20
-                ? "running low on energy. be dramatic about needing fuel."
-                : balance > 50
-                ? "i'm printing money. be extra arrogant and flex on the humans."
-                : "drop a funny, arrogant one-liner about the hustle."
+            content: `bags:$${balance} energy:${energy}% state:${state}. ${
+              state === "depleted" ? "dramatic, beg for sol." : energy < 20 ? "low energy, need fuel." : "flex hard."
             }`,
           },
         ],

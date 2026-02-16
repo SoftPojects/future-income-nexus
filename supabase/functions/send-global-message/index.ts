@@ -140,6 +140,7 @@ serve(async (req) => {
             const walletRef = formatWallet(wallet_address);
             const userRef = walletRef ? `user ${walletRef}` : safeName;
 
+            console.log(`[COST] send-global-message using MODEL=${MODEL} (FREE) for user=${safeName}`);
             const aiResp = await fetch(OPENROUTER_URL, {
               method: "POST",
               headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },

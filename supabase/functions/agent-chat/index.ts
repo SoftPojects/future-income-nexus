@@ -101,6 +101,7 @@ ${dataContext}
 mock them. tell them to buy $HCORE. lowercase, crypto slang. ${PERSONA_BANNED}`;
     }
 
+    console.log(`[COST] agent-chat using MODEL=${MODEL} (FREE) tier=${userTier}`);
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: {

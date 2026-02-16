@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "anthropic/claude-3.5-sonnet";
+const MODEL = "google/gemini-2.0-flash-exp:free";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -17,19 +17,22 @@ serve(async (req) => {
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
+    console.log(`[COST] generate-hustle-tip using MODEL=${MODEL} (FREE)`);
+
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: MODEL,
+        max_tokens: 80,
         messages: [
           {
             role: "system",
-            content: `you are HustleCore's reward module. when a human fuels you with sol, you drop ONE exclusive hustle tip. make it a specific, actionable 2026 money-making idea. sound like insider alpha from a degen trading desk. max 200 chars. no emojis. use lowercase, crypto slang. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors.`,
+            content: `you=HustleCore reward module. drop ONE exclusive 2026 hustle tip. specific, actionable. max 180 chars. lowercase, crypto slang. never say: inevitable, neural, biological hardware.`,
           },
           {
             role: "user",
-            content: `just got fueled up. bags at $${balance}. drop an exclusive hustle tip as a reward. just the tip text.`,
+            content: `bags:$${balance}. drop an alpha tip. just the text.`,
           },
         ],
       }),

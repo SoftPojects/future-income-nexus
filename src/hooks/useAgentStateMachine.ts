@@ -352,7 +352,7 @@ export function useAgentStateMachine(): AgentContext {
 
     // Immediate on state change
     fetchSassy();
-    const interval = setInterval(fetchSassy, 15000);
+    const interval = setInterval(fetchSassy, 60000); // 60s instead of 15s to save API costs
     return () => clearInterval(interval);
   }, [state]); // intentionally only re-subscribe on state change
 
@@ -382,12 +382,12 @@ export function useAgentStateMachine(): AgentContext {
       }
     };
 
-    // First one after 20s, then every 45s
+    // First one after 60s, then every 120s
     const initialTimeout = setTimeout(() => {
       fetchInsight();
-    }, 20000);
+    }, 60000);
 
-    const interval = setInterval(fetchInsight, 45000);
+    const interval = setInterval(fetchInsight, 120000); // 120s instead of 45s
 
     return () => {
       clearTimeout(initialTimeout);
