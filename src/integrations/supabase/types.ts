@@ -158,6 +158,30 @@ export type Database = {
         }
         Relationships: []
       }
+      social_logs: {
+        Row: {
+          action_type: string
+          created_at: string
+          id: string
+          source: string
+          target_handle: string
+        }
+        Insert: {
+          action_type: string
+          created_at?: string
+          id?: string
+          source?: string
+          target_handle: string
+        }
+        Update: {
+          action_type?: string
+          created_at?: string
+          id?: string
+          source?: string
+          target_handle?: string
+        }
+        Relationships: []
+      }
       target_agents: {
         Row: {
           auto_follow: boolean
@@ -166,6 +190,8 @@ export type Database = {
           id: string
           is_active: boolean
           last_roasted_at: string | null
+          priority: number
+          source: string
           x_handle: string
         }
         Insert: {
@@ -175,6 +201,8 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_roasted_at?: string | null
+          priority?: number
+          source?: string
           x_handle: string
         }
         Update: {
@@ -184,6 +212,8 @@ export type Database = {
           id?: string
           is_active?: boolean
           last_roasted_at?: string | null
+          priority?: number
+          source?: string
           x_handle?: string
         }
         Relationships: []

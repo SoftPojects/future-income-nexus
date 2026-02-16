@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +36,16 @@ interface TargetAgent {
   is_active: boolean;
   auto_follow: boolean;
   followed_at: string | null;
+  created_at: string;
+  source?: string;
+  priority?: number;
+}
+
+interface SocialLog {
+  id: string;
+  target_handle: string;
+  action_type: string;
+  source: string;
   created_at: string;
 }
 
@@ -97,6 +107,10 @@ const HustleAdmin = () => {
   const nextPost = getNextScheduledPost();
   const countdown = useCountdown(nextPost);
 
+  // Social activity state
+  const [socialLogs, setSocialLogs] = useState<SocialLog[]>([]);
+  const [nextTargets, setNextTargets] = useState<TargetAgent[]>([]);
+
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -128,13 +142,37 @@ const HustleAdmin = () => {
     if (!error && data?.targets) setTargets(data.targets);
   }, []);
 
+  const fetchSocialLogs = useCallback(async () => {
+    const { data } = await supabase
+      .from("social_logs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (data) setSocialLogs(data);
+  }, []);
+
+  const fetchNextTargets = useCallback(async () => {
+    const { data } = await supabase
+      .from("target_agents")
+      .select("*")
+      .eq("auto_follow", true)
+      .eq("is_active", true)
+      .is("followed_at", null)
+      .order("priority", { ascending: true })
+      .order("created_at", { ascending: true })
+      .limit(5);
+    if (data) setNextTargets(data);
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
       fetchMentions();
       fetchTargets();
+      fetchSocialLogs();
+      fetchNextTargets();
     }
-  }, [authenticated, fetchTweets, fetchMentions, fetchTargets]);
+  }, [authenticated, fetchTweets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets]);
 
   const handleLogin = async () => {
     if (!password.trim() || loginLoading) return;
@@ -255,7 +293,6 @@ const HustleAdmin = () => {
     if (authenticated) checkApiStatus();
   }, [authenticated]);
 
-  // Hunter actions
   const handleAddTarget = async () => {
     if (!newHandle.trim()) return;
     setAddingTarget(true);
@@ -442,7 +479,7 @@ const HustleAdmin = () => {
               </h3>
               <p className="text-[10px] font-mono text-muted-foreground">
                 {autopilot
-                  ? "Auto-posting every 4h • Auto-replying every 15m • Hunter mode active"
+                  ? "Auto-posting every 4h • Auto-replying every 15m • Hunter mode active • Discovery mode enabled"
                   : "Manual mode — generate and post tweets yourself"}
               </p>
             </div>
@@ -467,6 +504,9 @@ const HustleAdmin = () => {
             <TabsTrigger value="manual">Manual Post</TabsTrigger>
             <TabsTrigger value="hunter">
               <Crosshair className="w-3 h-3 mr-1" /> Hunter
+            </TabsTrigger>
+            <TabsTrigger value="social">
+              <Activity className="w-3 h-3 mr-1" /> Social Activity
             </TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="status">System</TabsTrigger>
@@ -670,7 +710,7 @@ const HustleAdmin = () => {
                 </div>
 
                 <p className="text-[10px] font-mono text-muted-foreground">
-                  Active targets will be randomly roasted during auto-posts (50% chance per cycle). 48h cooldown between roasts.
+                  Active targets will be randomly roasted during auto-posts (50% chance per cycle). 48h cooldown between roasts. Manual targets are always processed before Discovery targets.
                 </p>
               </CardContent>
             </Card>
@@ -702,7 +742,14 @@ const HustleAdmin = () => {
                       <div className="flex items-center gap-3">
                         <Crosshair className={`w-4 h-4 ${target.is_active ? "text-destructive" : "text-muted-foreground"}`} />
                         <div>
-                          <span className="text-foreground font-mono text-sm font-bold">@{target.x_handle}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-foreground font-mono text-sm font-bold">@{target.x_handle}</span>
+                            {target.source === "discovery" && (
+                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20">
+                                DISCOVERY
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
                               cooldown.onCooldown
@@ -799,6 +846,91 @@ const HustleAdmin = () => {
                 </Card>
               );
             })}
+          </TabsContent>
+
+          {/* SOCIAL ACTIVITY TAB */}
+          <TabsContent value="social" className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground">
+                RECENT ACTIVITY ({socialLogs.length})
+              </h2>
+              <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); }} variant="outline" size="sm">
+                <RefreshCw className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {socialLogs.length === 0 ? (
+              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
+                <Activity className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                No social activity logged yet. Actions will appear here once the bot starts following targets.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {socialLogs.map((log) => (
+                  <Card key={log.id} className="bg-card border-border">
+                    <CardContent className="p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${log.action_type === "follow" ? "bg-neon-green" : "bg-neon-cyan"}`} />
+                        <span className="text-foreground text-sm font-mono">
+                          {log.action_type === "follow" ? "Followed" : "Liked"}{" "}
+                          <span className="text-neon-cyan font-bold">@{log.target_handle}</span>
+                        </span>
+                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                          log.source === "discovery"
+                            ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20"
+                            : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"
+                        }`}>
+                          {log.source.toUpperCase()}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {new Date(log.created_at).toLocaleString()}
+                      </span>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* NEXT SESSIONS */}
+            <div className="pt-2">
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
+                <Eye className="w-4 h-4" />
+                NEXT SESSIONS ({nextTargets.length})
+              </h2>
+              <p className="text-[10px] font-mono text-muted-foreground mb-3">
+                Accounts the bot will interact with in the next 24 hours. Manual targets are processed first.
+              </p>
+
+              {nextTargets.length === 0 ? (
+                <div className="glass rounded-lg p-6 text-center text-muted-foreground text-sm">
+                  No upcoming sessions. All targets have been followed or Discovery Mode will find new ones.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {nextTargets.map((target, idx) => (
+                    <Card key={target.id} className="bg-card border-border">
+                      <CardContent className="p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-mono text-muted-foreground w-4">{idx + 1}.</span>
+                          <span className="text-foreground text-sm font-mono font-bold">@{target.x_handle}</span>
+                          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
+                            (target.source || "manual") === "discovery"
+                              ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20"
+                              : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"
+                          }`}>
+                            {(target.source || "manual").toUpperCase()}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          Priority: {target.priority ?? 0}
+                        </span>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
           </TabsContent>
 
           {/* MENTIONS TAB */}

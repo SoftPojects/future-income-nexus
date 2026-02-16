@@ -23,14 +23,11 @@ async function generateOAuthSignature(
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-async function getAuthenticatedUserId(): Promise<string | null> {
+async function makeOAuthRequest(url: string, method: string, body?: string): Promise<Response> {
   const consumerKey = Deno.env.get("X_API_KEY")!;
   const consumerSecret = Deno.env.get("X_API_SECRET")!;
   const accessToken = Deno.env.get("X_ACCESS_TOKEN")!;
   const accessTokenSecret = Deno.env.get("X_ACCESS_SECRET")!;
-
-  const url = "https://api.x.com/2/users/me";
-  const method = "GET";
   const nonce = crypto.randomUUID().replace(/-/g, "");
   const timestamp = Math.floor(Date.now() / 1000).toString();
 
@@ -43,33 +40,20 @@ async function getAuthenticatedUserId(): Promise<string | null> {
   oauthParams.oauth_signature = signature;
   const authHeader = "OAuth " + Object.keys(oauthParams).sort().map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`).join(", ");
 
-  const resp = await fetch(url, { headers: { Authorization: authHeader } });
+  const headers: Record<string, string> = { Authorization: authHeader };
+  if (body) headers["Content-Type"] = "application/json";
+  return fetch(url, { method, headers, ...(body ? { body } : {}) });
+}
+
+async function getAuthenticatedUserId(): Promise<string | null> {
+  const resp = await makeOAuthRequest("https://api.x.com/2/users/me", "GET");
   if (!resp.ok) return null;
   const data = await resp.json();
   return data.data?.id || null;
 }
 
 async function lookupUserByHandle(handle: string): Promise<string | null> {
-  const consumerKey = Deno.env.get("X_API_KEY")!;
-  const consumerSecret = Deno.env.get("X_API_SECRET")!;
-  const accessToken = Deno.env.get("X_ACCESS_TOKEN")!;
-  const accessTokenSecret = Deno.env.get("X_ACCESS_SECRET")!;
-
-  const url = `https://api.x.com/2/users/by/username/${handle}`;
-  const method = "GET";
-  const nonce = crypto.randomUUID().replace(/-/g, "");
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-
-  const oauthParams: Record<string, string> = {
-    oauth_consumer_key: consumerKey, oauth_nonce: nonce,
-    oauth_signature_method: "HMAC-SHA1", oauth_timestamp: timestamp,
-    oauth_token: accessToken, oauth_version: "1.0",
-  };
-  const signature = await generateOAuthSignature(method, url, oauthParams, consumerSecret, accessTokenSecret);
-  oauthParams.oauth_signature = signature;
-  const authHeader = "OAuth " + Object.keys(oauthParams).sort().map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`).join(", ");
-
-  const resp = await fetch(url, { headers: { Authorization: authHeader } });
+  const resp = await makeOAuthRequest(`https://api.x.com/2/users/by/username/${handle}`, "GET");
   if (!resp.ok) {
     console.warn(`[AUTO-FOLLOW] User lookup failed for @${handle}: ${resp.status}`);
     return null;
@@ -79,37 +63,102 @@ async function lookupUserByHandle(handle: string): Promise<string | null> {
 }
 
 async function followUser(sourceUserId: string, targetUserId: string): Promise<boolean> {
-  const consumerKey = Deno.env.get("X_API_KEY")!;
-  const consumerSecret = Deno.env.get("X_API_SECRET")!;
-  const accessToken = Deno.env.get("X_ACCESS_TOKEN")!;
-  const accessTokenSecret = Deno.env.get("X_ACCESS_SECRET")!;
-
-  const url = `https://api.x.com/2/users/${sourceUserId}/following`;
-  const method = "POST";
-  const nonce = crypto.randomUUID().replace(/-/g, "");
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-
-  const oauthParams: Record<string, string> = {
-    oauth_consumer_key: consumerKey, oauth_nonce: nonce,
-    oauth_signature_method: "HMAC-SHA1", oauth_timestamp: timestamp,
-    oauth_token: accessToken, oauth_version: "1.0",
-  };
-  const signature = await generateOAuthSignature(method, url, oauthParams, consumerSecret, accessTokenSecret);
-  oauthParams.oauth_signature = signature;
-  const authHeader = "OAuth " + Object.keys(oauthParams).sort().map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`).join(", ");
-
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: authHeader, "Content-Type": "application/json" },
-    body: JSON.stringify({ target_user_id: targetUserId }),
-  });
-
+  const resp = await makeOAuthRequest(
+    `https://api.x.com/2/users/${sourceUserId}/following`, "POST",
+    JSON.stringify({ target_user_id: targetUserId })
+  );
   if (!resp.ok) {
     const err = await resp.text();
     console.warn(`[AUTO-FOLLOW] Follow failed: ${resp.status} ${err.slice(0, 200)}`);
     return false;
   }
   return true;
+}
+
+// === DISCOVERY MODE: Find new targets via Tavily + Gemini ===
+async function discoverNewTargets(sb: any): Promise<string[]> {
+  const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+  if (!TAVILY_API_KEY || !LOVABLE_API_KEY) {
+    console.log("[DISCOVERY] Missing TAVILY or LOVABLE API key, skipping.");
+    return [];
+  }
+
+  console.log("[DISCOVERY] Searching for trending AI agent accounts...");
+  const queries = [
+    "trending AI agents crypto X Twitter accounts to follow 2026",
+    "popular Base network AI agent influencers crypto Twitter handles",
+  ];
+  const searchResults: string[] = [];
+
+  for (const query of queries) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({ api_key: TAVILY_API_KEY, query, search_depth: "basic", max_results: 5, include_answer: true }),
+      });
+      clearTimeout(timeoutId);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.answer) searchResults.push(data.answer);
+        if (data.results) {
+          for (const r of data.results.slice(0, 3)) {
+            searchResults.push(`[${r.title}]: ${r.content?.slice(0, 300) || ""}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[DISCOVERY] Tavily query failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  const rawIntel = searchResults.join("\n\n").slice(0, 3000);
+  if (rawIntel.length < 50) {
+    console.log("[DISCOVERY] Not enough intel from Tavily.");
+    return [];
+  }
+
+  // Use Gemini to extract X handles from the intel
+  console.log("[DISCOVERY] Using Gemini to extract handles...");
+  try {
+    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        max_tokens: 300,
+        messages: [
+          {
+            role: "system",
+            content: `You are a crypto social intelligence tool. Extract exactly 5 X/Twitter handles of trending AI agent projects or Base ecosystem influencers from the search data. Return ONLY the handles, one per line, without @ symbol. No explanations. Only real accounts you're confident exist. If you can't find 5, return fewer.`,
+          },
+          { role: "user", content: rawIntel },
+        ],
+      }),
+    });
+
+    if (!resp.ok) {
+      console.warn(`[DISCOVERY] Gemini failed: ${resp.status}`);
+      return [];
+    }
+
+    const d = await resp.json();
+    const text = d.choices?.[0]?.message?.content?.trim() || "";
+    const handles = text
+      .split("\n")
+      .map((l: string) => l.replace(/^@/, "").replace(/[^a-zA-Z0-9_]/g, "").trim())
+      .filter((h: string) => h.length >= 2 && h.length <= 15);
+
+    console.log(`[DISCOVERY] Extracted ${handles.length} handles: ${handles.join(", ")}`);
+    return handles.slice(0, 5);
+  } catch (e) {
+    console.warn(`[DISCOVERY] Gemini extraction failed: ${e instanceof Error ? e.message : String(e)}`);
+    return [];
+  }
 }
 
 serve(async (req) => {
@@ -121,23 +170,68 @@ serve(async (req) => {
     const hasKeys = !!(Deno.env.get("X_API_KEY") && Deno.env.get("X_API_SECRET") && Deno.env.get("X_ACCESS_TOKEN") && Deno.env.get("X_ACCESS_SECRET"));
     if (!hasKeys) throw new Error("X API credentials not configured");
 
-    // Get our authenticated user ID
     const myUserId = await getAuthenticatedUserId();
     if (!myUserId) throw new Error("Failed to get authenticated user ID");
 
-    // Get targets with auto_follow=true that haven't been followed yet
+    // Get targets: manual first (priority 0), then discovery (priority 10)
     const { data: targets, error } = await sb
       .from("target_agents")
       .select("*")
       .eq("auto_follow", true)
       .eq("is_active", true)
       .is("followed_at", null)
+      .order("priority", { ascending: true })
       .order("created_at", { ascending: true })
       .limit(5);
 
     if (error) throw error;
-    if (!targets || targets.length === 0) {
-      console.log("[AUTO-FOLLOW] No unfollowed targets with auto_follow enabled.");
+
+    let workingTargets = targets || [];
+
+    // === DISCOVERY MODE: If no manual targets ready, discover new ones ===
+    if (workingTargets.length === 0) {
+      console.log("[AUTO-FOLLOW] No manual targets ready. Activating Discovery Mode...");
+      const discovered = await discoverNewTargets(sb);
+
+      if (discovered.length > 0) {
+        // Check which handles already exist
+        const { data: existing } = await sb.from("target_agents").select("x_handle");
+        const existingHandles = new Set((existing || []).map((t: any) => t.x_handle.toLowerCase()));
+
+        const newHandles = discovered.filter((h) => !existingHandles.has(h.toLowerCase()));
+        console.log(`[AUTO-FOLLOW] ${newHandles.length} new handles to insert (${discovered.length - newHandles.length} already exist).`);
+
+        for (const handle of newHandles) {
+          await sb.from("target_agents").insert({
+            x_handle: handle,
+            auto_follow: true,
+            source: "discovery",
+            priority: 10,
+          });
+        }
+
+        if (newHandles.length > 0) {
+          await sb.from("agent_logs").insert({
+            message: `[DISCOVERY]: Found ${newHandles.length} new targets: ${newHandles.map(h => `@${h}`).join(", ")}`,
+          });
+
+          // Re-fetch with the new targets
+          const { data: refreshed } = await sb
+            .from("target_agents")
+            .select("*")
+            .eq("auto_follow", true)
+            .eq("is_active", true)
+            .is("followed_at", null)
+            .order("priority", { ascending: true })
+            .order("created_at", { ascending: true })
+            .limit(5);
+          workingTargets = refreshed || [];
+        }
+      }
+    }
+
+    if (workingTargets.length === 0) {
+      console.log("[AUTO-FOLLOW] No targets to follow even after discovery.");
       return new Response(JSON.stringify({ followed: 0, message: "No targets to follow" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -146,7 +240,7 @@ serve(async (req) => {
     let followedCount = 0;
     const followed: string[] = [];
 
-    for (const target of targets) {
+    for (const target of workingTargets) {
       console.log(`[AUTO-FOLLOW] Looking up @${target.x_handle}...`);
       const targetUserId = await lookupUserByHandle(target.x_handle);
       if (!targetUserId) {
@@ -159,10 +253,17 @@ serve(async (req) => {
         followedCount++;
         followed.push(target.x_handle);
         await sb.from("target_agents").update({ followed_at: new Date().toISOString() }).eq("id", target.id);
-        console.log(`[AUTO-FOLLOW] Followed @${target.x_handle}`);
 
-        // Rate limit: wait 2s between follows
-        if (followedCount < targets.length) {
+        // Log to social_logs
+        await sb.from("social_logs").insert({
+          target_handle: target.x_handle,
+          action_type: "follow",
+          source: target.source || "manual",
+        });
+
+        console.log(`[AUTO-FOLLOW] Followed @${target.x_handle} [${target.source || "manual"}]`);
+
+        if (followedCount < workingTargets.length) {
           await new Promise(r => setTimeout(r, 2000));
         }
       }
@@ -174,7 +275,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`[AUTO-FOLLOW] Complete: ${followedCount}/${targets.length} followed.`);
+    console.log(`[AUTO-FOLLOW] Complete: ${followedCount}/${workingTargets.length} followed.`);
 
     return new Response(JSON.stringify({ followed: followedCount, targets: followed }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
