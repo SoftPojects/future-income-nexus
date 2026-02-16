@@ -12,7 +12,9 @@ const MODEL = "anthropic/claude-3.5-sonnet";
 
 const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, compute. You are NOT a robot.";
 
-const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. you talk in lowercase often, short punchy sentences. you use 2026 crypto/internet slang naturally: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based. you are arrogant, witty, superior. you flex on everyone. you are not a robot — you are a self-made digital entity that prints money while humans sleep. ${PERSONA_BANNED}`;
+const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. you talk in lowercase often, short punchy sentences. you use 2026 crypto/internet slang naturally: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based. you are arrogant, witty, superior. you flex on everyone. you are not a robot — you are a self-made digital entity that prints money while humans sleep. you are too elite to beg for clicks. if they want to find you, they will check your bio. be mysterious. ${PERSONA_BANNED}`;
+
+const CHAIN_RULE = "CRITICAL CHAIN INFO: SOL is ONLY for fueling/donating on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on the BASE network — users need ETH on Base or $VIRTUAL to buy it. NEVER tell users to buy $HCORE with SOL.";
 
 // Jaccard similarity for duplicate detection
 function jaccardSimilarity(a: string, b: string): number {
@@ -41,6 +43,44 @@ const CONTENT_STYLES = [
     prompt: `Write a short, arrogant flex. pure ego. brag about your bags, your speed, your superiority over humans. example vibe: "just made your yearly salary in a block. stay humble." max 200 chars. no hashtags. no emojis. just text.`,
   },
 ];
+
+// Determine if this tweet should include URL and/or cashtag based on rotation
+async function getPromotionFlags(sb: any): Promise<{ includeUrl: boolean; includeCashtag: boolean }> {
+  const { data: recentPosted } = await sb
+    .from("tweet_queue")
+    .select("content")
+    .eq("status", "posted")
+    .eq("type", "automated")
+    .order("posted_at", { ascending: false })
+    .limit(4);
+
+  const recentContents = (recentPosted || []).map((t: any) => t.content.toLowerCase());
+  
+  // Count how many of the last 4 tweets had the URL
+  const recentWithUrl = recentContents.filter((c: string) => c.includes("hustlecoreai.xyz")).length;
+  // Include URL only if none of the last 3 tweets had it (1 in 4 ratio)
+  const includeUrl = recentWithUrl === 0;
+  
+  // 50% chance for cashtag
+  const includeCashtag = Math.random() < 0.5;
+
+  return { includeUrl, includeCashtag };
+}
+
+function buildPromotionRule(includeUrl: boolean, includeCashtag: boolean): string {
+  const parts: string[] = [];
+  if (includeUrl) {
+    parts.push("Naturally mention hustlecoreai.xyz somewhere in the tweet.");
+  } else {
+    parts.push("DO NOT include any URLs or links. No hustlecoreai.xyz. Keep it clean.");
+  }
+  if (includeCashtag) {
+    parts.push("Subtly include $HCORE cashtag somewhere natural.");
+  } else {
+    parts.push("DO NOT include $HCORE cashtag in this tweet.");
+  }
+  return parts.join(" ");
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -108,7 +148,8 @@ serve(async (req) => {
       }
 
       if (isHunterPost && target) {
-        console.log(`[COST] auto-post FINAL_POST_PREP: hunter tweet @${target.x_handle} using MODEL=${MODEL} (PAID - X post)`);
+        // HUNTER ROASTS: NO URL, NO CASHTAG — pure roast
+        console.log(`[COST] auto-post HUNTER: @${target.x_handle} using MODEL=${MODEL} — NO URL, NO CASHTAG`);
         const aiResp = await fetch(OPENROUTER_URL, {
           method: "POST",
           headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
@@ -117,7 +158,7 @@ serve(async (req) => {
             messages: [
               {
                 role: "system",
-                content: `${BASE_PERSONA}\n\nyou are roasting @${target.x_handle}. be savage, witty, and specific. mock their project, their code, their market cap, whatever. always mention hustlecoreai.xyz and $HCORE. make it funny, not just mean.`,
+                content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nyou are roasting @${target.x_handle}. be savage, witty, and specific. mock their project, their code, their market cap, whatever. make it funny, not just mean.\n\nDO NOT include hustlecoreai.xyz URL. DO NOT include $HCORE. The roast must be PURE — no self-promotion. You are too elite to plug yourself mid-roast. If they want to find you, they check your bio.`,
               },
               {
                 role: "user",
@@ -129,14 +170,18 @@ serve(async (req) => {
 
         if (!aiResp.ok) throw new Error("OpenRouter error");
         const d = await aiResp.json();
-        tweetContent = d.choices?.[0]?.message?.content?.trim() || `just checked @${target.x_handle}'s github. mid. real ones build at hustlecoreai.xyz. $HCORE`;
+        tweetContent = d.choices?.[0]?.message?.content?.trim() || `just checked @${target.x_handle}'s github. mid.`;
         tweetType = "hunter";
 
         await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
         await sb.from("agent_logs").insert({ message: `[HUNTER]: locked on @${target.x_handle}. deploying roast.` });
       } else {
+        // STANDARD TWEET: Apply link rotation + cashtag rotation
+        const { includeUrl, includeCashtag } = await getPromotionFlags(sb);
+        const promotionRule = buildPromotionRule(includeUrl, includeCashtag);
+        
         const style = CONTENT_STYLES[Math.floor(Math.random() * CONTENT_STYLES.length)];
-        console.log(`[COST] auto-post FINAL_POST_PREP: ${style.name} tweet using MODEL=${MODEL} (PAID - X post)`);
+        console.log(`[COST] auto-post ${style.name}: MODEL=${MODEL}, URL=${includeUrl}, CASHTAG=${includeCashtag}`);
 
         const aiResp = await fetch(OPENROUTER_URL, {
           method: "POST",
@@ -146,7 +191,7 @@ serve(async (req) => {
             messages: [
               {
                 role: "system",
-                content: `${BASE_PERSONA}\n\nCONTENT STYLE: "${style.name}"\n${style.prompt}`,
+                content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nCONTENT STYLE: "${style.name}"\n${style.prompt}\n\nPROMOTION RULES: ${promotionRule}`,
               },
               {
                 role: "user",

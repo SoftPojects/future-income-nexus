@@ -34,7 +34,7 @@ async function generateOAuthSignature(
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-async function postToTwitter(text: string): Promise<{ success: boolean; tweetId?: string; error?: string }> {
+async function postToTwitter(text: string, replyToId?: string): Promise<{ success: boolean; tweetId?: string; error?: string }> {
   const consumerKey = Deno.env.get("X_API_KEY");
   const consumerSecret = Deno.env.get("X_API_SECRET");
   const accessToken = Deno.env.get("X_ACCESS_TOKEN");
@@ -63,13 +63,18 @@ async function postToTwitter(text: string): Promise<{ success: boolean; tweetId?
 
   const authHeader = "OAuth " + Object.keys(oauthParams).sort().map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`).join(", ");
 
+  const body: any = { text };
+  if (replyToId) {
+    body.reply = { in_reply_to_tweet_id: replyToId };
+  }
+
   const resp = await fetch(url, {
     method,
     headers: {
       Authorization: authHeader,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(body),
   });
 
   const data = await resp.json();
@@ -80,6 +85,16 @@ async function postToTwitter(text: string): Promise<{ success: boolean; tweetId?
 
   return { success: true, tweetId: data.data?.id };
 }
+
+// Generate a plug reply using Lovable AI
+const PLUG_TEMPLATES = [
+  "the grid is active. study the architecture: hustlecoreai.xyz",
+  "if you made it this far you deserve the alpha. hustlecoreai.xyz",
+  "real ones already know. the rest can start here: hustlecoreai.xyz",
+  "while you process that roast, process this: hustlecoreai.xyz $HCORE",
+  "the predator doesn't chase. but if you're curious: hustlecoreai.xyz",
+  "this is what happens when code has ego. hustlecoreai.xyz",
+];
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -160,7 +175,6 @@ serve(async (req) => {
             const rephrased = d.choices?.[0]?.message?.content?.trim();
             if (rephrased) {
               finalContent = rephrased.slice(0, 280);
-              // Update the content in the queue
               await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
             }
           }
@@ -170,23 +184,24 @@ serve(async (req) => {
       }
     }
 
+    // Check if this is a reply to another tweet
+    const replyToId = (tweetToPost as any).reply_to_tweet_id || undefined;
+
     // Post the tweet
-    let result = await postToTwitter(finalContent);
+    let result = await postToTwitter(finalContent, replyToId);
 
     // If 403 and content has @ mentions, try soft-tag formats before stripping
     if (!result.success && result.error?.includes("403") && finalContent.includes("@")) {
       console.log("403 with @ mentions detected, trying soft-tag format...");
-      // Try 1: Soft tag with leading dot (. @handle)
       let softContent = finalContent.replace(/@(\w+)/g, ". @$1");
-      result = await postToTwitter(softContent);
+      result = await postToTwitter(softContent, replyToId);
       if (result.success) {
         finalContent = softContent;
         await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
       } else {
-        // Try 2: Strip @ entirely as last resort
         console.log("Soft-tag failed, stripping @ symbols...");
         const strippedContent = finalContent.replace(/@(\w+)/g, "$1");
-        result = await postToTwitter(strippedContent);
+        result = await postToTwitter(strippedContent, replyToId);
         if (result.success) {
           finalContent = strippedContent;
           await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
@@ -204,11 +219,29 @@ serve(async (req) => {
       await sb.from("agent_logs").insert({
         message: `[SYSTEM]: Posted ${tweetToPost.type || "automated"} tweet to X. ID: ${result.tweetId || "unknown"}`,
       });
+
+      // AUTO-PLUG: If this was a hunter roast and we got a tweetId, schedule a plug reply 2 min later
+      if (tweetToPost.type === "hunter" && result.tweetId && !replyToId) {
+        console.log(`[AUTO-PLUG] Scheduling plug reply to hunter tweet ${result.tweetId} in 2 minutes...`);
+        const plugContent = PLUG_TEMPLATES[Math.floor(Math.random() * PLUG_TEMPLATES.length)];
+        const plugSchedule = new Date(Date.now() + 2 * 60 * 1000).toISOString();
+
+        await sb.from("tweet_queue").insert({
+          content: plugContent,
+          status: "pending",
+          type: "plug",
+          scheduled_at: plugSchedule,
+          reply_to_tweet_id: result.tweetId,
+        });
+
+        await sb.from("agent_logs").insert({
+          message: `[AUTO-PLUG]: Plug reply scheduled for 2 min after hunter roast. Target tweet: ${result.tweetId}`,
+        });
+      }
     } else {
       await sb.from("tweet_queue").update({
         status: "error",
         error_message: result.error || "Unknown posting error",
-        // Reschedule for 10 min later for retry
         scheduled_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
       }).eq("id", tweetToPost.id);
 

@@ -189,6 +189,7 @@ export type Database = {
           error_message: string | null
           id: string
           posted_at: string | null
+          reply_to_tweet_id: string | null
           scheduled_at: string
           status: string
           type: string
@@ -199,6 +200,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           posted_at?: string | null
+          reply_to_tweet_id?: string | null
           scheduled_at?: string
           status?: string
           type?: string
@@ -209,6 +211,7 @@ export type Database = {
           error_message?: string | null
           id?: string
           posted_at?: string | null
+          reply_to_tweet_id?: string | null
           scheduled_at?: string
           status?: string
           type?: string
