@@ -28,10 +28,10 @@ serve(async (req) => {
       });
     }
 
-    // Compress text via Gemini Flash (free) — max 150 chars, punchy & arrogant
+    // Compress text via Gemini Flash (free) — max 120 chars, punchy & arrogant
     let trimmedText = text.slice(0, 300);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (LOVABLE_API_KEY && trimmedText.length > 150) {
+    if (LOVABLE_API_KEY && trimmedText.length > 120) {
       try {
         const compressResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -39,7 +39,7 @@ serve(async (req) => {
           body: JSON.stringify({
             model: "google/gemini-2.5-flash-lite",
             messages: [
-              { role: "system", content: "Compress this to under 150 characters. Keep the same tone — cold, arrogant, robotic. Output ONLY the compressed text, nothing else." },
+              { role: "system", content: "Compress this to under 120 characters. Keep the same tone — cold, arrogant, robotic. Output ONLY the compressed text, nothing else." },
               { role: "user", content: trimmedText },
             ],
           }),
@@ -47,16 +47,16 @@ serve(async (req) => {
         if (compressResp.ok) {
           const cd = await compressResp.json();
           const compressed = cd.choices?.[0]?.message?.content?.trim();
-          if (compressed && compressed.length <= 150) trimmedText = compressed;
-          else trimmedText = trimmedText.slice(0, 150);
+          if (compressed && compressed.length <= 120) trimmedText = compressed;
+          else trimmedText = trimmedText.slice(0, 120);
         }
-      } catch { trimmedText = trimmedText.slice(0, 150); }
+      } catch { trimmedText = trimmedText.slice(0, 120); }
     } else {
-      trimmedText = trimmedText.slice(0, 150);
+      trimmedText = trimmedText.slice(0, 120);
     }
 
-    // Brian voice — cold, mechanical male (PERMANENT identity)
-    const voiceId = "nPczCjzI2devNBz1zQrb";
+    // Victor voice — cold, authoritative male (PERMANENT identity)
+    const voiceId = "cPoqAvGWCPfCfyPMwe4z";
 
     const response = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
@@ -68,7 +68,7 @@ serve(async (req) => {
         },
         body: JSON.stringify({
           text: trimmedText,
-          model_id: "eleven_turbo_v2_5",
+          model_id: "eleven_flash_v2_5",
           voice_settings: {
             stability: 0.85,
             similarity_boost: 0.6,
