@@ -167,8 +167,14 @@ serve(async (req) => {
     const mentions = await fetchMentionsFromX();
     let repliedCount = 0;
     let spamSkipped = 0;
+    const SELF_HANDLES = ["hustlecore_ai", "sv_surman"];
 
     for (const mention of mentions) {
+      // CRITICAL: Never reply to our own tweets or creator's tweets
+      if (SELF_HANDLES.includes(mention.author_handle.toLowerCase())) {
+        await sb.from("x_mentions").upsert({ id: mention.id, author_handle: mention.author_handle, content: mention.content, replied: true }, { onConflict: "id" });
+        continue;
+      }
       const { data: existing } = await sb.from("x_mentions").select("id").eq("id", mention.id).maybeSingle();
       if (!existing) {
         await sb.from("x_mentions").insert({
