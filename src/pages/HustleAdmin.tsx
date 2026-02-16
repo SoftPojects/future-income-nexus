@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -87,7 +87,10 @@ const HustleAdmin = () => {
   const [newHandle, setNewHandle] = useState("");
   const [addingTarget, setAddingTarget] = useState(false);
   const [roastingId, setRoastingId] = useState<string | null>(null);
-
+  const [draftingId, setDraftingId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, { content: string; angle: string; model: string }[]>>({});
+  const [expandedDrafts, setExpandedDrafts] = useState<Record<string, boolean>>({});
+  const [activeTab, setActiveTab] = useState("queue");
   const [loginLoading, setLoginLoading] = useState(false);
   const nextPost = getNextScheduledPost();
   const countdown = useCountdown(nextPost);
@@ -293,6 +296,36 @@ const HustleAdmin = () => {
     fetchTargets();
   };
 
+  const handleGenerateDrafts = async (target: TargetAgent) => {
+    setDraftingId(target.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("admin-hunter", {
+        body: { action: "drafts", id: target.id, admin_token: getAdminToken() },
+      });
+      if (error) throw error;
+      if (data?.drafts) {
+        setDrafts((prev) => ({ ...prev, [target.id]: data.drafts }));
+        setExpandedDrafts((prev) => ({ ...prev, [target.id]: true }));
+        toast({ title: "DRAFTS READY", description: `${data.drafts.length} roast drafts for @${target.x_handle}` });
+      }
+    } catch (e) {
+      toast({ title: "Draft generation failed", description: String(e), variant: "destructive" });
+    } finally {
+      setDraftingId(null);
+    }
+  };
+
+  const handleCopyDraft = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({ title: "COPIED", description: "Draft copied to clipboard." });
+  };
+
+  const handleSendToManual = (text: string) => {
+    setManualTweet(text);
+    setActiveTab("manual");
+    toast({ title: "LOADED", description: "Draft loaded into Manual Post." });
+  };
+
   const getCooldownStatus = (lastRoastedAt: string | null) => {
     if (!lastRoastedAt) return { onCooldown: false, text: "READY" };
     const diff = Date.now() - new Date(lastRoastedAt).getTime();
@@ -413,7 +446,7 @@ const HustleAdmin = () => {
           </div>
         </motion.div>
 
-        <Tabs defaultValue="queue" className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="bg-muted border border-border">
             <TabsTrigger value="queue">Tweet Queue</TabsTrigger>
             <TabsTrigger value="manual">Manual Post</TabsTrigger>
@@ -645,9 +678,11 @@ const HustleAdmin = () => {
 
             {targets.map((target) => {
               const cooldown = getCooldownStatus(target.last_roasted_at);
+              const targetDrafts = drafts[target.id] || [];
+              const isExpanded = expandedDrafts[target.id] || false;
               return (
                 <Card key={target.id} className={`bg-card ${target.is_active ? "border-destructive/30" : "border-border opacity-50"}`}>
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Crosshair className={`w-4 h-4 ${target.is_active ? "text-destructive" : "text-muted-foreground"}`} />
@@ -672,6 +707,18 @@ const HustleAdmin = () => {
                       <div className="flex items-center gap-2">
                         <Button
                           size="sm"
+                          variant="outline"
+                          disabled={draftingId === target.id || !target.is_active}
+                          onClick={() => handleGenerateDrafts(target)}
+                        >
+                          {draftingId === target.id ? (
+                            <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Researching...</>
+                          ) : (
+                            <><Lightbulb className="w-3 h-3 mr-1" /> Generate Draft</>
+                          )}
+                        </Button>
+                        <Button
+                          size="sm"
                           variant="destructive"
                           disabled={cooldown.onCooldown || roastingId === target.id || !target.is_active}
                           onClick={() => handleRoastNow(target.id)}
@@ -684,6 +731,42 @@ const HustleAdmin = () => {
                         </Button>
                       </div>
                     </div>
+
+                    {/* Drafts section */}
+                    {targetDrafts.length > 0 && (
+                      <div className="space-y-2">
+                        <button
+                          onClick={() => setExpandedDrafts((prev) => ({ ...prev, [target.id]: !isExpanded }))}
+                          className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          {targetDrafts.length} DRAFTS AVAILABLE
+                        </button>
+
+                        {isExpanded && (
+                          <div className="space-y-2 pl-4 border-l-2 border-destructive/20">
+                            {targetDrafts.map((draft, idx) => (
+                              <div key={idx} className="glass rounded-lg p-3 space-y-2">
+                                <p className="text-foreground text-xs font-mono leading-relaxed">{draft.content}</p>
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[9px] font-mono text-muted-foreground">
+                                    {draft.model} • {draft.angle.slice(0, 40)}
+                                  </span>
+                                  <div className="flex gap-1">
+                                    <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => handleCopyDraft(draft.content)}>
+                                      <Copy className="w-3 h-3 mr-1" /> Copy
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-neon-cyan" onClick={() => handleSendToManual(draft.content)}>
+                                      <ArrowRight className="w-3 h-3 mr-1" /> Manual Post
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               );

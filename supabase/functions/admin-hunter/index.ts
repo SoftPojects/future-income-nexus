@@ -268,6 +268,63 @@ serve(async (req) => {
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    if (action === "drafts") {
+      const { data: target } = await sb.from("target_agents").select("*").eq("id", body.id).single();
+      if (!target) throw new Error("Target not found");
+
+      const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+      if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+      console.log(`[HUNTER DRAFTS] === Generating 3 drafts for @${target.x_handle} ===`);
+
+      const { data: agent } = await sb.from("agent_state").select("total_hustled, energy_level").limit(1).single();
+
+      // Phase 1: Tavily intel
+      console.log("[HUNTER DRAFTS] Phase 1: Tavily intel search...");
+      const rawIntel = await searchTargetIntel(target.x_handle);
+
+      // Phase 2: Gemini summarize
+      console.log("[HUNTER DRAFTS] Phase 2: Gemini summarization...");
+      const dossier = await summarizeIntel(target.x_handle, rawIntel, LOVABLE_API_KEY);
+      console.log(`[HUNTER DRAFTS] Dossier: ${dossier ? dossier.length + " chars" : "empty"}`);
+
+      // Phase 3: Generate 3 drafts with different angles
+      const { data: recentRoasts } = await sb
+        .from("tweet_queue")
+        .select("content")
+        .eq("type", "hunter")
+        .order("created_at", { ascending: false })
+        .limit(5);
+      const recentContext = (recentRoasts || []).map((r: any) => r.content).join("\n---\n");
+
+      const selectedAngles: string[] = [];
+      const shuffled = [...ROAST_ANGLES].sort(() => Math.random() - 0.5);
+      for (let i = 0; i < 3; i++) selectedAngles.push(shuffled[i % shuffled.length]);
+
+      console.log("[HUNTER DRAFTS] Phase 3: Generating 3 drafts (Claude → Gemini fallback)...");
+      const drafts: { content: string; angle: string; model: string }[] = [];
+
+      for (const angle of selectedAngles) {
+        const { content, model } = await generateRoast(
+          target.x_handle, dossier, angle, recentContext,
+          agent?.total_hustled ?? 0, agent?.energy_level ?? 50, LOVABLE_API_KEY,
+        );
+        let finalContent = content;
+        if (!finalContent.toLowerCase().startsWith(`@${target.x_handle.toLowerCase()}`)) {
+          finalContent = `@${target.x_handle} ${finalContent}`;
+        }
+        drafts.push({ content: finalContent.slice(0, 280), angle, model });
+        console.log(`[HUNTER DRAFTS] Draft generated (model: ${model}, angle: ${angle})`);
+      }
+
+      console.log(`[HUNTER DRAFTS] === Complete: ${drafts.length} drafts for @${target.x_handle} ===`);
+
+      return new Response(
+        JSON.stringify({ success: true, drafts, intelLength: rawIntel.length, dossierLength: dossier.length }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     if (action === "roast") {
       const { data: target } = await sb.from("target_agents").select("*").eq("id", body.id).single();
       if (!target) throw new Error("Target not found");
@@ -279,16 +336,13 @@ serve(async (req) => {
 
       const { data: agent } = await sb.from("agent_state").select("total_hustled, energy_level").limit(1).single();
 
-      // Phase 1: Tavily intel search
       console.log("[HUNTER ROAST] Phase 1/4: Tavily intel search...");
       const rawIntel = await searchTargetIntel(target.x_handle);
 
-      // Phase 2: Gemini summarizes intel into a tight dossier
       console.log("[HUNTER ROAST] Phase 2/4: Gemini intel summarization...");
       const dossier = await summarizeIntel(target.x_handle, rawIntel, LOVABLE_API_KEY);
       console.log(`[HUNTER ROAST] Dossier: ${dossier ? dossier.length + " chars" : "empty (standard roast mode)"}`);
 
-      // Phase 3: Pick angle + gather recent roasts
       const angle = ROAST_ANGLES[Math.floor(Math.random() * ROAST_ANGLES.length)];
       console.log(`[HUNTER ROAST] Phase 3/4: Angle: "${angle}"`);
 
@@ -300,33 +354,22 @@ serve(async (req) => {
         .limit(5);
       const recentContext = (recentRoasts || []).map((r: any) => r.content).join("\n---\n");
 
-      // Phase 4: Claude writes the final roast (Gemini fallback if Claude fails/times out)
       console.log("[HUNTER ROAST] Phase 4/4: Final roast generation (Claude → Gemini fallback)...");
       const { content: rawContent, model: usedModel } = await generateRoast(
-        target.x_handle,
-        dossier,
-        angle,
-        recentContext,
-        agent?.total_hustled ?? 0,
-        agent?.energy_level ?? 50,
-        LOVABLE_API_KEY,
+        target.x_handle, dossier, angle, recentContext,
+        agent?.total_hustled ?? 0, agent?.energy_level ?? 50, LOVABLE_API_KEY,
       );
 
       let content = rawContent;
-
-      // Ensure it starts with the handle
       if (!content.toLowerCase().startsWith(`@${target.x_handle.toLowerCase()}`)) {
         content = `@${target.x_handle} ${content}`;
       }
 
-      // Queue the tweet
       await sb.from("tweet_queue").insert({ content: content.slice(0, 280), status: "pending", type: "hunter" });
       console.log(`[HUNTER ROAST] Tweet queued (model: ${usedModel})`);
 
-      // Update last_roasted_at
       await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
 
-      // Post immediately
       try {
         await sb.functions.invoke("post-tweet", { body: {} });
         console.log("[HUNTER ROAST] post-tweet invoked");
@@ -334,7 +377,6 @@ serve(async (req) => {
         console.warn("[HUNTER ROAST] post-tweet failed (tweet still queued):", postErr);
       }
 
-      // Log
       await sb.from("agent_logs").insert({
         message: `[HUNTER]: Roast on @${target.x_handle}. Model: ${usedModel}. Angle: ${angle}. Intel: ${dossier.length} chars.`,
       });
