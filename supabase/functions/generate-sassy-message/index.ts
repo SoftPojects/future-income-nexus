@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "google/gemini-2.0-flash-exp:free";
+const MODEL = "z-ai/glm-4.5-air:free";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -41,9 +41,11 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
+      const errBody = await response.text();
+      console.error(`[ERROR] generate-sassy-message status=${response.status} body=${errBody}`);
       if (response.status === 429) return new Response(JSON.stringify({ error: "Rate limited" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       if (response.status === 402) return new Response(JSON.stringify({ error: "Payment required" }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      throw new Error("OpenRouter error");
+      throw new Error(`OpenRouter error: ${response.status}`);
     }
 
     const data = await response.json();
