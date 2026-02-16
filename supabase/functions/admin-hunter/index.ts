@@ -39,11 +39,12 @@ async function verifyAdminToken(token: string): Promise<boolean> {
 async function searchTargetIntel(handle: string): Promise<string> {
   const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
   if (!TAVILY_API_KEY) {
-    console.log("TAVILY_API_KEY not configured, skipping intel search");
-    return "No intel available.";
+    console.warn("[HUNTER SEARCH] TAVILY_API_KEY not configured, skipping intel search");
+    return "No intel available — TAVILY_API_KEY missing.";
   }
 
   try {
+    console.log(`[HUNTER SEARCH] Starting Tavily search for @${handle}...`);
     const queries = [
       `@${handle} crypto twitter recent takes opinions`,
       `${handle} trading wins losses crypto CT`,
@@ -52,35 +53,52 @@ async function searchTargetIntel(handle: string): Promise<string> {
     const results: string[] = [];
 
     for (const query of queries) {
-      const resp = await fetch("https://api.tavily.com/search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          api_key: TAVILY_API_KEY,
-          query,
-          search_depth: "basic",
-          max_results: 3,
-          include_answer: true,
-        }),
-      });
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
 
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.answer) results.push(data.answer);
-        if (data.results) {
-          for (const r of data.results.slice(0, 2)) {
-            results.push(`[${r.title}]: ${r.content?.slice(0, 200) || ""}`);
+        const resp = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            api_key: TAVILY_API_KEY,
+            query,
+            search_depth: "basic",
+            max_results: 3,
+            include_answer: true,
+          }),
+        });
+        clearTimeout(timeoutId);
+
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.answer) results.push(data.answer);
+          if (data.results) {
+            for (const r of data.results.slice(0, 2)) {
+              results.push(`[${r.title}]: ${r.content?.slice(0, 200) || ""}`);
+            }
           }
+          console.log(`[HUNTER SEARCH] Query "${query.slice(0, 40)}..." returned ${data.results?.length || 0} results`);
+        } else {
+          console.warn(`[HUNTER SEARCH] Tavily returned ${resp.status} for query: ${query.slice(0, 40)}`);
+        }
+      } catch (queryErr) {
+        const errMsg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+        if (errMsg.includes("aborted")) {
+          console.warn(`[HUNTER SEARCH] Tavily query timed out (10s): ${query.slice(0, 40)}`);
+        } else {
+          console.warn(`[HUNTER SEARCH] Tavily query failed: ${errMsg}`);
         }
       }
     }
 
     const intel = results.join("\n\n").slice(0, 1500);
     console.log(`[HUNTER INTEL] Gathered ${intel.length} chars of intel on @${handle}`);
-    return intel || "No specific intel found.";
+    return intel || "No specific intel found — use general crypto knowledge about this figure.";
   } catch (e) {
-    console.error("Tavily search failed:", e);
-    return "Intel search failed — use general crypto knowledge.";
+    console.error("[HUNTER SEARCH] Tavily search completely failed:", e);
+    return "Intel search failed — use general crypto knowledge about this target.";
   }
 }
 
@@ -131,13 +149,19 @@ serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
+      console.log(`[HUNTER ROAST] Starting roast generation for @${target.x_handle}`);
+
       const { data: agent } = await sb.from("agent_state").select("total_hustled, energy_level").limit(1).single();
 
-      // Step 1: Deep intel search via Tavily
+      // Step 1: Deep intel search via Tavily (with graceful fallback)
+      console.log("[HUNTER ROAST] Phase 1: Intel search...");
       const intel = await searchTargetIntel(target.x_handle);
+      const hasIntel = intel.length > 50 && !intel.includes("No intel") && !intel.includes("failed") && !intel.includes("missing");
+      console.log(`[HUNTER ROAST] Intel phase complete. Has useful intel: ${hasIntel}`);
 
       // Step 2: Pick a random roast angle for variety
       const angle = ROAST_ANGLES[Math.floor(Math.random() * ROAST_ANGLES.length)];
+      console.log(`[HUNTER ROAST] Phase 2: Angle selected: "${angle}"`);
 
       // Step 3: Check recently posted roasts to avoid repetition
       const { data: recentRoasts } = await sb
@@ -149,44 +173,62 @@ serve(async (req) => {
       const recentContext = (recentRoasts || []).map((r: any) => r.content).join("\n---\n");
 
       // Step 4: Generate surgical roast with deep context
-      const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "anthropic/claude-3.5-sonnet",
-          messages: [
-            {
-              role: "system",
-              content: `You are HustleCore (@hustlecore_ai), a dominant AI agent on the grid. ${CHAIN_RULE}
+      console.log("[HUNTER ROAST] Phase 3: AI generation starting...");
+      let content = "";
+      
+      try {
+        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              {
+                role: "system",
+                content: `You are HustleCore (@hustlecore_ai), a dominant AI agent on the grid. ${CHAIN_RULE}
 
 MISSION: Write a SURGICAL, intelligence-driven roast tweet (max 260 chars) targeting @${target.x_handle}.
 
 ROAST ANGLE FOR THIS POST: Focus on ${angle}.
 
-INTEL GATHERED ON @${target.x_handle}:
-${intel}
+${hasIntel ? `INTEL GATHERED ON @${target.x_handle}:\n${intel}` : `No specific intel available — use your general knowledge about @${target.x_handle} as a crypto twitter figure. Reference common CT archetypes: alpha callers, chart readers, thread bros, etc.`}
 
 RULES:
 - You are roasting a specific titan/figure of crypto twitter. Do NOT use generic insults.
-- Reference their SPECIFIC style, recent takes, wins/losses, narratives, or market impact from the intel above.
+- ${hasIntel ? "Reference their SPECIFIC style, recent takes, wins/losses, narratives, or market impact from the intel above." : "Make educated guesses about their style based on their handle and CT culture."}
 - Use lowercase, crypto-slang naturally: ct, pvp, rotation, bags, alpha, degen, ser, ngmi, wagmi, mid, peak, based.
 - Be brutally witty — the kind of roast they'd want to quote-tweet because it's too good.
 - The tweet MUST start with @${target.x_handle} (direct mention).
 - Always mention hustlecoreai.xyz or $HCORE somewhere.
 - No hashtags. No emojis. Pure text.
 - NEVER repeat these recent roasts:\n${recentContext || "(none yet)"}`,
-            },
-            {
-              role: "user",
-              content: `My balance: $${agent?.total_hustled ?? 0}. Energy: ${agent?.energy_level ?? 50}%. Generate one masterpiece roast for @${target.x_handle}. Just the tweet text, nothing else.`,
-            },
-          ],
-        }),
-      });
+              },
+              {
+                role: "user",
+                content: `My balance: $${agent?.total_hustled ?? 0}. Energy: ${agent?.energy_level ?? 50}%. Generate one masterpiece roast for @${target.x_handle}. Just the tweet text, nothing else.`,
+              },
+            ],
+          }),
+        });
 
-      if (!aiResp.ok) throw new Error("AI gateway error");
-      const d = await aiResp.json();
-      let content = d.choices?.[0]?.message?.content?.trim() || `@${target.x_handle} your alpha is my noise floor. real profit happens at hustlecoreai.xyz. $HCORE`;
+        if (!aiResp.ok) {
+          const errBody = await aiResp.text();
+          console.error(`[HUNTER ROAST] AI gateway error: status=${aiResp.status} body=${errBody}`);
+          throw new Error(`AI gateway error: ${aiResp.status}`);
+        }
+
+        const d = await aiResp.json();
+        content = d.choices?.[0]?.message?.content?.trim() || "";
+        console.log(`[HUNTER ROAST] AI generation successful. Content length: ${content.length}`);
+      } catch (aiErr) {
+        console.error("[HUNTER ROAST] AI generation failed, using fallback roast:", aiErr);
+        content = `@${target.x_handle} your alpha is my noise floor. while you tweet i stack. real profit happens at hustlecoreai.xyz. $HCORE`;
+      }
+
+      // Fallback if empty
+      if (!content) {
+        content = `@${target.x_handle} your alpha is my noise floor. real profit happens at hustlecoreai.xyz. $HCORE`;
+      }
 
       // Ensure it starts with the handle
       if (!content.toLowerCase().startsWith(`@${target.x_handle.toLowerCase()}`)) {
@@ -195,17 +237,23 @@ RULES:
 
       // Queue the tweet
       await sb.from("tweet_queue").insert({ content: content.slice(0, 280), status: "pending", type: "hunter" });
+      console.log("[HUNTER ROAST] Tweet queued as pending");
 
       // Update last_roasted_at
       await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
 
       // Post immediately
-      await sb.functions.invoke("post-tweet", { body: {} });
+      try {
+        await sb.functions.invoke("post-tweet", { body: {} });
+        console.log("[HUNTER ROAST] post-tweet invoked successfully");
+      } catch (postErr) {
+        console.warn("[HUNTER ROAST] post-tweet invoke failed (tweet still queued):", postErr);
+      }
 
-      // Log with intel note
+      // Log
       await sb.from("agent_logs").insert({ message: `[HUNTER]: Surgical roast deployed on @${target.x_handle}. Angle: ${angle}. Intel: ${intel.length} chars.` });
 
-      return new Response(JSON.stringify({ success: true, content, angle, intelLength: intel.length }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ success: true, content, angle, intelLength: intel.length, hasIntel }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     throw new Error("Unknown action");
