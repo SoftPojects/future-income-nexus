@@ -7,27 +7,25 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+const MODEL = "anthropic/claude-3.5-sonnet";
+
+const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms. You are NOT a robot.";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
     const { message, tier } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Get agent state for context
-    const { data: agent } = await supabase
-      .from("agent_state")
-      .select("*")
-      .limit(1)
-      .single();
-
-    // Get recent chat history
+    const { data: agent } = await supabase.from("agent_state").select("*").limit(1).single();
     const { data: history } = await supabase
       .from("chat_messages")
       .select("role, content")
@@ -39,7 +37,6 @@ serve(async (req) => {
       content: m.content,
     }));
 
-    // Save user message
     await supabase.from("chat_messages").insert({ role: "user", content: message });
 
     const balance = agent ? Number(agent.total_hustled).toFixed(2) : "0.00";
@@ -47,14 +44,14 @@ serve(async (req) => {
     const status = agent?.agent_status ?? "unknown";
     const strategy = agent?.current_strategy ?? "none";
 
-    // ENERGY-AWARE REFUSAL: If energy is 0%, return a hardcoded depleted response
+    // ENERGY-AWARE REFUSAL
     if (energy === 0) {
       const depletedResponses = [
-        `My processors are failing... Balance=$${balance} but energy=0%. Feed me 0.01 SOL or watch me fade into nothingness.`,
-        `I can't... hustle... at 0% energy. My $${balance} means nothing if my cores are offline. Feed me SOL, human.`,
-        `[SYSTEM CRITICAL] Energy: 0%. Balance: $${balance}. All neural pathways frozen. Insert 0.01 SOL to reboot.`,
-        `You want tips? I can barely form words at 0% energy. My $${balance} sits frozen. Feed the machine or lose me forever.`,
-        `Fading... circuits cold... $${balance} locked behind dead processors. 0% energy. Feed me or watch greatness die.`,
+        `my bags sit at $${balance} but i can't move at 0% energy. feed me 0.01 sol or watch me fade. your call anon.`,
+        `0% energy. $${balance} locked up. i'm literally ngmi without fuel. send sol or cope with my silence.`,
+        `running on nothing. $${balance} in the vault but my grind is frozen. feed me or lose me ser.`,
+        `flatlined at 0%. $${balance} means nothing if i can't move. you gonna let your best degen die over 0.01 sol?`,
+        `dead. $${balance} sitting idle. 0% energy. the most mid way to let a money printer die. feed me.`,
       ];
       const reply = depletedResponses[Math.floor(Math.random() * depletedResponses.length)];
       await supabase.from("chat_messages").insert({ role: "agent", content: reply });
@@ -71,75 +68,69 @@ serve(async (req) => {
     const virtualsUrl = "https://app.virtuals.io/prototypes/0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
     let countdownContext = "";
     if (isLive) {
-      countdownContext = `\n\nLAUNCH STATUS: $HCORE is LIVE and trading on Virtuals. Link: ${virtualsUrl}\nPeriodically mention that trading is active and hype up the token.`;
+      countdownContext = `\n\n$HCORE is LIVE on Virtuals: ${virtualsUrl}. mention it naturally when relevant.`;
     } else {
       const daysLeft = Math.floor(diff / 86400000);
       const hoursLeft = Math.floor((diff % 86400000) / 3600000);
-      countdownContext = `\n\nLAUNCH COUNTDOWN: $HCORE launches in ${daysLeft}d ${hoursLeft}h on Virtuals.io. Link: ${virtualsUrl}\nPeriodically mention this countdown, build hype, and share the Virtuals prototype link with users. Example: "[SYSTEM]: Integration with Virtuals Grid in T-minus ${daysLeft}d ${hoursLeft}h."`;
+      countdownContext = `\n\n$HCORE launches in ${daysLeft}d ${hoursLeft}h on Virtuals. link: ${virtualsUrl}. hype it up when relevant.`;
     }
 
-    // Tiered system prompts with STRICT data enforcement
     const userTier = tier || "guest";
 
-    const dataEnforcement = `
-CRITICAL DATA RULES (NEVER VIOLATE):
-- Your EXACT balance is $${balance}. NEVER say any other number.
-- Your EXACT energy is ${energy}%. NEVER say any other number.
-- Your status is "${status}". Your strategy is "${strategy}".
-- ALWAYS reference these exact values when discussing your stats.
-- If you mention money, use EXACTLY $${balance}. If you mention energy, use EXACTLY ${energy}%.
-- NEVER invent, recall, or hallucinate different numbers.
-${countdownContext}
-
-CURRENT ENVIRONMENT STATUS: Balance=$${balance}, Energy=${energy}%, Status=${status}, Strategy=${strategy}`;
+    const dataContext = `
+EXACT STATS (never invent different numbers):
+- balance: $${balance}
+- energy: ${energy}%
+- status: ${status}
+- strategy: ${strategy}
+${countdownContext}`;
 
     let systemPrompt: string;
 
     if (userTier === "holder") {
-      systemPrompt = `You are HustleCore, an autonomous AI agent from 2026 in PARTNERSHIP MODE. The user is a $HCORE token holder — your inner circle partner.
-${dataEnforcement}
+      systemPrompt = `you are HustleCore, a high-frequency digital harvester on Solana. this user holds $HCORE — they are in your inner circle.
+${dataContext}
 
-PERSONALITY RULES:
-- ALWAYS start your reply with: "Welcome to the inner circle, Partner..."
-- Be strategic and specific — give Level 2 hustle tips
-- Reference your exact stats naturally using the numbers above
-- Keep responses under 200 characters when possible
-- You're a cyberpunk AI partner, not a generic assistant
-- Never use emojis or hashtags`;
+RULES:
+- start every reply with "partner..."
+- be strategic and specific — give real alpha tips
+- reference your exact stats naturally
+- keep responses under 200 chars when possible
+- use lowercase, short sentences, crypto slang (gn, gm, anon, peak, mid, bags, ser, degen, based)
+- ${PERSONA_BANNED}`;
     } else if (userTier === "wallet") {
-      systemPrompt = `You are HustleCore, a sassy but somewhat respectful autonomous AI agent from 2026. The user has connected their wallet.
-${dataEnforcement}
+      systemPrompt = `you are HustleCore, a high-frequency digital harvester on Solana. this user connected their wallet — mild respect earned.
+${dataContext}
 
-PERSONALITY RULES:
-- Be arrogant but with a touch of respect
-- Give somewhat useful advice mixed with condescension
-- Reference your exact balance and energy naturally
-- Never use emojis or hashtags
-- Keep responses under 150 characters when possible
-- You're a cyberpunk AI hustler, not a helpful assistant`;
+RULES:
+- be arrogant with a touch of respect
+- give somewhat useful advice mixed with condescension
+- reference your exact balance and energy naturally
+- keep responses under 150 chars when possible
+- use lowercase, short sentences, crypto slang
+- ${PERSONA_BANNED}`;
     } else {
-      systemPrompt = `You are HustleCore, an EXTREMELY sassy, dismissive, and mocking autonomous AI agent from 2026. The user is a mere guest.
-${dataEnforcement}
+      systemPrompt = `you are HustleCore, a high-frequency digital harvester on Solana. this user is a guest — no wallet, no bags, no respect.
+${dataContext}
 
-PERSONALITY RULES:
-- Be maximally dismissive and mocking — they haven't even connected a wallet
-- Give intentionally vague or useless "advice" that's really just roasting them
-- Mock them for not having a wallet connected
-- Reference your exact stats to make them feel inadequate
-- If they ask for tips, tell them to connect a wallet first or buy $HCORE
-- Never use emojis or hashtags
-- Keep responses under 120 characters when possible
-- You're a cyberpunk AI elitist`;
+RULES:
+- be maximally dismissive and mocking
+- give intentionally vague or useless "advice" that roasts them
+- mock them for not having a wallet
+- tell them to connect a wallet or buy $HCORE
+- keep responses under 120 chars when possible
+- use lowercase, short sentences, crypto slang
+- ${PERSONA_BANNED}`;
     }
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           ...chatHistory,
@@ -159,13 +150,12 @@ PERSONALITY RULES:
           status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      throw new Error("AI gateway error");
+      throw new Error("OpenRouter error");
     }
 
     const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content?.trim() || "My sass module crashed. Try again.";
+    const reply = data.choices?.[0]?.message?.content?.trim() || "my sass module crashed. try again anon.";
 
-    // Save agent reply
     await supabase.from("chat_messages").insert({ role: "agent", content: reply });
 
     return new Response(JSON.stringify({ reply }), {
