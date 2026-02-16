@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-const MODEL = "deepseek/deepseek-chat";
+const MODEL = "google/gemini-2.0-flash-exp:free";
 
 const PERSONA_BANNED = "NEVER say: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, AI assistant.";
 
@@ -158,7 +158,7 @@ replies<100chars. roast trolls, drop alpha for smart questions. no emojis/hashta
                   },
                 ],
               }),
-              max_tokens: 100,
+              max_tokens: 70,
             });
 
             if (aiResp.ok) {
