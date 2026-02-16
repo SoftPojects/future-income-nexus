@@ -92,6 +92,17 @@ serve(async (req) => {
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
     const sb = createClient(supabaseUrl, serviceKey);
 
+    // Check Claude daily cap (max 4 premium tweets/day)
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const { count: claudeUsedToday } = await sb
+      .from("tweet_queue")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", todayStart.toISOString())
+      .like("model_used", "%claude%");
+    const claudeUsed = claudeUsedToday || 0;
+    const claudeAvailable = claudeUsed < 4;
+
     const { data: agent } = await sb.from("agent_state").select("*").limit(1).single();
     if (!agent) throw new Error("No agent state");
 
@@ -101,12 +112,16 @@ serve(async (req) => {
     let tweetType = "automated";
 
     if (isDepleted) {
-      console.log(`[COST] auto-post FINAL_POST_PREP: depleted tweet using MODEL=${MODEL} (PAID - X post)`);
-      const aiResp = await fetch(OPENROUTER_URL, {
+      // Use Claude only if under daily cap, otherwise Gemini fallback
+      const activeModel = claudeAvailable ? MODEL : "google/gemini-2.5-flash";
+      const activeUrl = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+      const activeAuth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${Deno.env.get("LOVABLE_API_KEY")}`;
+      console.log(`[COST] auto-post FINAL_POST_PREP: depleted tweet using MODEL=${activeModel} (Claude cap: ${claudeUsed}/4)`);
+      const aiResp = await fetch(activeUrl, {
         method: "POST",
-        headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        headers: { Authorization: activeAuth, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: MODEL,
+          model: activeModel,
           messages: [
             {
               role: "system",
@@ -148,13 +163,16 @@ serve(async (req) => {
       }
 
       if (isHunterPost && target) {
-        // HUNTER ROASTS: NO URL, NO CASHTAG — pure roast
-        console.log(`[COST] auto-post HUNTER: @${target.x_handle} using MODEL=${MODEL} — NO URL, NO CASHTAG`);
-        const aiResp = await fetch(OPENROUTER_URL, {
+        // HUNTER ROASTS: Use Claude if available, otherwise Gemini
+        const huntModel = claudeAvailable ? MODEL : "google/gemini-2.5-flash";
+        const huntUrl = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+        const huntAuth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${Deno.env.get("LOVABLE_API_KEY")}`;
+        console.log(`[COST] auto-post HUNTER: @${target.x_handle} using MODEL=${huntModel} — NO URL, NO CASHTAG (Claude cap: ${claudeUsed}/4)`);
+        const aiResp = await fetch(huntUrl, {
           method: "POST",
-          headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+          headers: { Authorization: huntAuth, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: MODEL,
+            model: huntModel,
             messages: [
               {
                 role: "system",
@@ -235,11 +253,12 @@ serve(async (req) => {
       }
     }
 
-    // Save to queue
+    // Save to queue with model tracking
     await sb.from("tweet_queue").insert({
       content: tweetContent.slice(0, 280),
       status: "pending",
       type: tweetType,
+      model_used: MODEL,
     });
 
     // Post immediately

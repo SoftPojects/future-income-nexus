@@ -34,6 +34,8 @@ interface TargetAgent {
   x_handle: string;
   last_roasted_at: string | null;
   is_active: boolean;
+  auto_follow: boolean;
+  followed_at: string | null;
   created_at: string;
 }
 
@@ -294,6 +296,19 @@ const HustleAdmin = () => {
       body: { action: "delete", id, admin_token: getAdminToken() },
     });
     fetchTargets();
+  };
+
+  const handleToggleFollow = async (target: TargetAgent) => {
+    try {
+      const { error } = await supabase.functions.invoke("admin-hunter", {
+        body: { action: "toggle_follow", id: target.id, auto_follow: !target.auto_follow, admin_token: getAdminToken() },
+      });
+      if (error) throw error;
+      toast({ title: target.auto_follow ? "AUTO-FOLLOW OFF" : "AUTO-FOLLOW ON", description: `@${target.x_handle}` });
+      fetchTargets();
+    } catch (e) {
+      toast({ title: "Failed", description: String(e), variant: "destructive" });
+    }
   };
 
   const handleGenerateDrafts = async (target: TargetAgent) => {
@@ -701,10 +716,23 @@ const HustleAdmin = () => {
                                 Last roasted: {new Date(target.last_roasted_at).toLocaleString()}
                               </span>
                             )}
+                            {target.followed_at && (
+                              <span className="text-[10px] text-neon-cyan font-mono">
+                                ✓ Following
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
+                          <Switch
+                            checked={target.auto_follow}
+                            onCheckedChange={() => handleToggleFollow(target)}
+                            className="scale-75"
+                          />
+                          <span className="text-[9px] font-mono text-muted-foreground">Follow</span>
+                        </div>
                         <Button
                           size="sm"
                           variant="outline"

@@ -160,21 +160,27 @@ export type Database = {
       }
       target_agents: {
         Row: {
+          auto_follow: boolean
           created_at: string
+          followed_at: string | null
           id: string
           is_active: boolean
           last_roasted_at: string | null
           x_handle: string
         }
         Insert: {
+          auto_follow?: boolean
           created_at?: string
+          followed_at?: string | null
           id?: string
           is_active?: boolean
           last_roasted_at?: string | null
           x_handle: string
         }
         Update: {
+          auto_follow?: boolean
           created_at?: string
+          followed_at?: string | null
           id?: string
           is_active?: boolean
           last_roasted_at?: string | null
@@ -188,6 +194,7 @@ export type Database = {
           created_at: string
           error_message: string | null
           id: string
+          model_used: string | null
           posted_at: string | null
           reply_to_tweet_id: string | null
           scheduled_at: string
@@ -199,6 +206,7 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           id?: string
+          model_used?: string | null
           posted_at?: string | null
           reply_to_tweet_id?: string | null
           scheduled_at?: string
@@ -210,6 +218,7 @@ export type Database = {
           created_at?: string
           error_message?: string | null
           id?: string
+          model_used?: string | null
           posted_at?: string | null
           reply_to_tweet_id?: string | null
           scheduled_at?: string
