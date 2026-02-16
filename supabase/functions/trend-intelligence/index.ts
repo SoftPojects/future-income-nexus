@@ -53,8 +53,11 @@ serve(async (req) => {
     const queries = [
       "Latest trending AI Agents crypto projects X Twitter 2026",
       "Virtuals.io trending AI agents Base network crypto",
+      "BREAKING NEWS AI crypto blockchain 2026",
     ];
     const results: string[] = [];
+    let isBreakingNews = false;
+    let breakingContext = "";
 
     for (const query of queries) {
       try {
@@ -69,10 +72,23 @@ serve(async (req) => {
         clearTimeout(timeoutId);
         if (resp.ok) {
           const data = await resp.json();
-          if (data.answer) results.push(data.answer);
+          if (data.answer) {
+            results.push(data.answer);
+            // Detect breaking news keywords
+            const answerLower = data.answer.toLowerCase();
+            if (answerLower.includes("breaking") || answerLower.includes("just announced") || answerLower.includes("just launched") || answerLower.includes("emergency") || answerLower.includes("crashed") || answerLower.includes("hack")) {
+              isBreakingNews = true;
+              breakingContext = data.answer;
+            }
+          }
           if (data.results) {
             for (const r of data.results.slice(0, 3)) {
               results.push(`[${r.title}]: ${r.content?.slice(0, 300) || ""}`);
+              const titleLower = (r.title || "").toLowerCase();
+              if (titleLower.includes("breaking") || titleLower.includes("just in") || titleLower.includes("urgent")) {
+                isBreakingNews = true;
+                if (!breakingContext) breakingContext = `${r.title}: ${r.content?.slice(0, 200) || ""}`;
+              }
             }
           }
         }
@@ -208,10 +224,25 @@ serve(async (req) => {
     }
 
     await sb.from("agent_logs").insert({
-      message: `[TREND INTEL]: Generated ${generatedTweets.length} trend tweets. Intel: ${rawIntel.length} chars. Models: ${generatedTweets.map(t => t.model).join(", ")}`,
+      message: `[TREND INTEL]: Generated ${generatedTweets.length} trend tweets. Intel: ${rawIntel.length} chars. Models: ${generatedTweets.map(t => t.model).join(", ")}${isBreakingNews ? " 🚨 BREAKING NEWS DETECTED" : ""}`,
     });
 
-    console.log(`[TREND] Complete: ${generatedTweets.length} tweets queued as pending.`);
+    // === BREAKING NEWS BYPASS: Immediately trigger auto-post if breaking news detected ===
+    if (isBreakingNews && breakingContext) {
+      console.log("[TREND] 🚨 BREAKING NEWS detected! Bypassing schedule for immediate post...");
+      try {
+        await sb.functions.invoke("auto-post", {
+          body: { breakingNews: true, breakingContext: breakingContext.slice(0, 500) },
+        });
+        await sb.from("agent_logs").insert({
+          message: `[🚨 BREAKING]: Schedule bypassed! Immediate post triggered. Context: ${breakingContext.slice(0, 100)}...`,
+        });
+      } catch (e) {
+        console.error("[TREND] Breaking news auto-post failed:", e);
+      }
+    }
+
+    console.log(`[TREND] Complete: ${generatedTweets.length} tweets queued as pending. Breaking: ${isBreakingNews}`);
 
     return new Response(JSON.stringify({
       success: true,
