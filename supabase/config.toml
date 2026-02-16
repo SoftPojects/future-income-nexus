@@ -35,3 +35,9 @@ verify_jwt = false
 
 [functions.post-pending-tweets]
 verify_jwt = false
+
+[functions.trend-intelligence]
+verify_jwt = false
+
+[functions.auto-follow]
+verify_jwt = false

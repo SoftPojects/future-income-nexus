@@ -11,6 +11,99 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const CLAUDE_MODEL = "anthropic/claude-3.5-sonnet";
 const GEMINI_SUMMARIZER = "google/gemini-2.5-flash";
 
+// Check daily Claude cap (max 4 premium tweets/day)
+async function getClaudeUsageToday(sb: any): Promise<number> {
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const { count } = await sb
+    .from("tweet_queue")
+    .select("*", { count: "exact", head: true })
+    .gte("created_at", todayStart.toISOString())
+    .like("model_used", "%claude%");
+  return count || 0;
+}
+
+// Search for target's latest tweet using X search API (Basic tier compatible)
+async function fetchTargetLatestTweet(handle: string): Promise<{ id: string; text: string } | null> {
+  const consumerKey = Deno.env.get("X_API_KEY");
+  const consumerSecret = Deno.env.get("X_API_SECRET");
+  const accessToken = Deno.env.get("X_ACCESS_TOKEN");
+  const accessTokenSecret = Deno.env.get("X_ACCESS_SECRET");
+
+  if (!consumerKey || !consumerSecret || !accessToken || !accessTokenSecret) return null;
+
+  const searchUrl = "https://api.x.com/2/tweets/search/recent";
+  const query = `from:${handle} -is:retweet -is:reply`;
+  const params: Record<string, string> = {
+    "query": query,
+    "max_results": "5",
+    "tweet.fields": "created_at,text",
+  };
+
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: consumerKey,
+    oauth_nonce: nonce,
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: timestamp,
+    oauth_token: accessToken,
+    oauth_version: "1.0",
+    ...params,
+  };
+
+  function percentEncode(str: string): string {
+    return encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  }
+
+  const sortedParams = Object.keys(oauthParams).sort().map((k) => `${percentEncode(k)}=${percentEncode(oauthParams[k])}`).join("&");
+  const baseString = `GET&${percentEncode(searchUrl)}&${percentEncode(sortedParams)}`;
+  const signingKey = `${percentEncode(consumerSecret)}&${percentEncode(accessTokenSecret)}`;
+
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(signingKey), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(baseString));
+  const signature = btoa(String.fromCharCode(...new Uint8Array(sig)));
+
+  const authOnlyParams: Record<string, string> = {
+    oauth_consumer_key: consumerKey,
+    oauth_nonce: nonce,
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: timestamp,
+    oauth_token: accessToken,
+    oauth_version: "1.0",
+    oauth_signature: signature,
+  };
+
+  const authHeader = "OAuth " + Object.keys(authOnlyParams).sort().map((k) => `${percentEncode(k)}="${percentEncode(authOnlyParams[k])}"`).join(", ");
+
+  const queryString = Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  const fullUrl = `${searchUrl}?${queryString}`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const resp = await fetch(fullUrl, {
+      headers: { Authorization: authHeader },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!resp.ok) {
+      console.warn(`[HUNTER SEARCH] X search failed: ${resp.status}`);
+      return null;
+    }
+    const data = await resp.json();
+    if (data.data && data.data.length > 0) {
+      return { id: data.data[0].id, text: data.data[0].text };
+    }
+    return null;
+  } catch (e) {
+    console.warn(`[HUNTER SEARCH] X search error: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
+  }
+}
+
 const CHAIN_RULE = "CRITICAL CHAIN INFO: SOL is ONLY for fueling/donating on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on the BASE network — users need ETH on Base or $VIRTUAL to buy it. NEVER tell users to buy $HCORE with SOL.";
 
 const ROAST_ANGLES = [
@@ -335,6 +428,12 @@ serve(async (req) => {
       );
     }
 
+    if (action === "toggle_follow") {
+      const { error } = await sb.from("target_agents").update({ auto_follow: body.auto_follow }).eq("id", body.id);
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (action === "roast") {
       const { data: target } = await sb.from("target_agents").select("*").eq("id", body.id).single();
       if (!target) throw new Error("Target not found");
@@ -342,19 +441,66 @@ serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-      console.log(`[HUNTER ROAST] === Starting hybrid roast for @${target.x_handle} ===`);
+      // Check Claude daily cap
+      const claudeUsed = await getClaudeUsageToday(sb);
+      if (claudeUsed >= 4) {
+        return new Response(JSON.stringify({ error: "Claude daily cap reached (4/4). Try again tomorrow." }), {
+          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      console.log(`[HUNTER ROAST] === Starting tactical reply for @${target.x_handle} ===`);
 
       const { data: agent } = await sb.from("agent_state").select("total_hustled, energy_level").limit(1).single();
 
-      console.log("[HUNTER ROAST] Phase 1/4: Tavily intel search...");
+      // TACTICAL REPLY: Try to find target's latest tweet for a direct reply
+      console.log("[HUNTER ROAST] Phase 1/5: Searching target's latest tweet via X API...");
+      const latestTweet = await fetchTargetLatestTweet(target.x_handle);
+      let tweetContext = "";
+      let replyToTweetId: string | null = null;
+
+      if (latestTweet) {
+        replyToTweetId = latestTweet.id;
+        console.log(`[HUNTER ROAST] Found tweet ${latestTweet.id}: "${latestTweet.text.slice(0, 80)}..."`);
+
+        // Analyze the tweet content with Gemini (FREE)
+        console.log("[HUNTER ROAST] Phase 2/5: Gemini analyzing target tweet...");
+        try {
+          const analysisResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: GEMINI_SUMMARIZER,
+              max_tokens: 200,
+              messages: [
+                {
+                  role: "system",
+                  content: `Analyze this tweet from @${target.x_handle}. In 2-3 sentences, identify: the main claim/take, any weaknesses in their argument, and potential roast angles. Be specific.`,
+                },
+                { role: "user", content: latestTweet.text },
+              ],
+            }),
+          });
+          if (analysisResp.ok) {
+            const d = await analysisResp.json();
+            tweetContext = d.choices?.[0]?.message?.content?.trim() || "";
+            console.log(`[HUNTER ROAST] Tweet analysis: ${tweetContext.length} chars`);
+          }
+        } catch (e) {
+          console.warn("[HUNTER ROAST] Tweet analysis failed:", e);
+        }
+      } else {
+        console.log("[HUNTER ROAST] No recent tweet found — falling back to standalone roast.");
+      }
+
+      console.log("[HUNTER ROAST] Phase 3/5: Tavily intel search...");
       const rawIntel = await searchTargetIntel(target.x_handle);
 
-      console.log("[HUNTER ROAST] Phase 2/4: Gemini intel summarization...");
+      console.log("[HUNTER ROAST] Phase 4/5: Gemini intel summarization...");
       const dossier = await summarizeIntel(target.x_handle, rawIntel, LOVABLE_API_KEY);
       console.log(`[HUNTER ROAST] Dossier: ${dossier ? dossier.length + " chars" : "empty (standard roast mode)"}`);
 
       const angle = ROAST_ANGLES[Math.floor(Math.random() * ROAST_ANGLES.length)];
-      console.log(`[HUNTER ROAST] Phase 3/4: Angle: "${angle}"`);
 
       const { data: recentRoasts } = await sb
         .from("tweet_queue")
@@ -364,9 +510,15 @@ serve(async (req) => {
         .limit(5);
       const recentContext = (recentRoasts || []).map((r: any) => r.content).join("\n---\n");
 
-      console.log("[HUNTER ROAST] Phase 4/4: Final roast generation (Claude → Gemini fallback)...");
+      // Enhance the roast prompt with tweet context if we have it
+      let enhancedDossier = dossier;
+      if (tweetContext) {
+        enhancedDossier = `${dossier}\n\nTARGET'S LATEST TWEET ANALYSIS:\n${tweetContext}\n\nTARGET'S ACTUAL TWEET: "${latestTweet!.text}"`;
+      }
+
+      console.log("[HUNTER ROAST] Phase 5/5: Claude generating tactical roast...");
       const { content: rawContent, model: usedModel } = await generateRoast(
-        target.x_handle, dossier, angle, recentContext,
+        target.x_handle, enhancedDossier, angle, recentContext,
         agent?.total_hustled ?? 0, agent?.energy_level ?? 50, LOVABLE_API_KEY,
       );
 
@@ -375,8 +527,15 @@ serve(async (req) => {
         content = `@${target.x_handle} ${content}`;
       }
 
-      await sb.from("tweet_queue").insert({ content: content.slice(0, 280), status: "pending", type: "hunter" });
-      console.log(`[HUNTER ROAST] Tweet queued (model: ${usedModel})`);
+      // Queue with reply_to_tweet_id if we found a tweet to reply to
+      await sb.from("tweet_queue").insert({
+        content: content.slice(0, 280),
+        status: "pending",
+        type: "hunter",
+        model_used: usedModel,
+        reply_to_tweet_id: replyToTweetId,
+      });
+      console.log(`[HUNTER ROAST] Tweet queued (model: ${usedModel}, reply_to: ${replyToTweetId || "standalone"})`);
 
       await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
 
@@ -388,13 +547,13 @@ serve(async (req) => {
       }
 
       await sb.from("agent_logs").insert({
-        message: `[HUNTER]: Roast on @${target.x_handle}. Model: ${usedModel}. Angle: ${angle}. Intel: ${dossier.length} chars.`,
+        message: `[HUNTER]: Tactical ${replyToTweetId ? "reply" : "roast"} on @${target.x_handle}. Model: ${usedModel}. Angle: ${angle}. Intel: ${dossier.length} chars.${replyToTweetId ? ` Reply to: ${replyToTweetId}` : ""}`,
       });
 
       console.log(`[HUNTER ROAST] === Complete for @${target.x_handle} ===`);
 
       return new Response(
-        JSON.stringify({ success: true, content, angle, model: usedModel, intelLength: rawIntel.length, dossierLength: dossier.length }),
+        JSON.stringify({ success: true, content, angle, model: usedModel, intelLength: rawIntel.length, dossierLength: dossier.length, replyTo: replyToTweetId }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
