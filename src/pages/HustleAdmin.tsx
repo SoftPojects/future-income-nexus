@@ -49,6 +49,27 @@ interface SocialLog {
   created_at: string;
 }
 
+// ─── TIMEZONE-AWARE SCHEDULE LABELS ───
+// Prime time windows in UTC:
+// Slot 1 (US Morning):    UTC 14:00-15:00
+// Slot 2 (US Lunch):      UTC 17:00-18:30
+// Slot 3 (US Afternoon):  UTC 20:00-21:30
+function getScheduleLabel(scheduledAt: string, type: string): { label: string; isPrime: boolean } {
+  if (type === "breaking") return { label: "🚨 BREAKING NEWS", isPrime: true };
+  if (type === "manual") return { label: "MANUAL POST", isPrime: false };
+  if (type === "trend") return { label: "TREND INTEL", isPrime: false };
+
+  const date = new Date(scheduledAt);
+  const utcH = date.getUTCHours();
+  const utcM = date.getUTCMinutes();
+  const totalMin = utcH * 60 + utcM;
+
+  if (totalMin >= 14 * 60 && totalMin < 15 * 60) return { label: "TARGETING: US MORNING PEAK", isPrime: true };
+  if (totalMin >= 17 * 60 && totalMin < 18 * 60 + 30) return { label: "TARGETING: US LUNCH PEAK", isPrime: true };
+  if (totalMin >= 20 * 60 && totalMin < 21 * 60 + 30) return { label: "TARGETING: US AFTERNOON PEAK", isPrime: true };
+  return { label: "OFF-PEAK FILLER", isPrime: false };
+}
+
 // Calculate next scheduled post time (every 4 hours from midnight UTC)
 function getNextScheduledPost(): Date {
   const now = new Date();
@@ -552,7 +573,7 @@ const HustleAdmin = () => {
               </h3>
               <p className="text-[10px] font-mono text-muted-foreground">
                 {autopilot
-                  ? "Auto-posting every 4h • Auto-replying every 15m • Hunter mode active • Discovery mode enabled"
+                  ? "Prime time targeting: US Morning (18:00 GMT+4) • US Lunch (21:00) • US Afternoon (00:00) • Off-peak filler 4-8h • Breaking news bypass active"
                   : "Manual mode — generate and post tweets yourself"}
               </p>
             </div>
@@ -655,6 +676,21 @@ const HustleAdmin = () => {
                           <span className="text-xs text-muted-foreground">
                             ({tweet.content.length}/280)
                           </span>
+                          <span>•</span>
+                          {(() => {
+                            const { label, isPrime } = getScheduleLabel(tweet.scheduled_at, tweet.type);
+                            return (
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
+                                label.includes("BREAKING")
+                                  ? "bg-destructive/20 text-destructive border border-destructive/30"
+                                  : isPrime
+                                  ? "bg-neon-green/10 text-neon-green border border-neon-green/30"
+                                  : "bg-muted text-muted-foreground border border-border"
+                              }`}>
+                                {label}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="flex gap-1">
                           {!autopilot && (
