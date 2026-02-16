@@ -167,6 +167,47 @@ serve(async (req) => {
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    // Check if this is a discovery-only request (no following, just find targets)
+    let discoveryOnly = false;
+    try {
+      const body = await req.json();
+      discoveryOnly = body?.discoveryOnly === true;
+    } catch { /* no body or not JSON, normal flow */ }
+
+    if (discoveryOnly) {
+      console.log("[AUTO-FOLLOW] Discovery-only mode triggered.");
+      const discovered = await discoverNewTargets(sb);
+
+      if (discovered.length > 0) {
+        const { data: existing } = await sb.from("target_agents").select("x_handle");
+        const existingHandles = new Set((existing || []).map((t: any) => t.x_handle.toLowerCase()));
+        const newHandles = discovered.filter((h) => !existingHandles.has(h.toLowerCase()));
+
+        for (const handle of newHandles) {
+          await sb.from("target_agents").insert({
+            x_handle: handle,
+            auto_follow: true,
+            source: "discovery",
+            priority: 10,
+          });
+        }
+
+        if (newHandles.length > 0) {
+          await sb.from("agent_logs").insert({
+            message: `[DISCOVERY]: Found ${newHandles.length} new targets: ${newHandles.map(h => `@${h}`).join(", ")}`,
+          });
+        }
+
+        return new Response(JSON.stringify({ success: true, discovered: newHandles.length, handles: newHandles }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ success: true, discovered: 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const hasKeys = !!(Deno.env.get("X_API_KEY") && Deno.env.get("X_API_SECRET") && Deno.env.get("X_ACCESS_TOKEN") && Deno.env.get("X_ACCESS_SECRET"));
     if (!hasKeys) throw new Error("X API credentials not configured");
 

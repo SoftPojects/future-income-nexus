@@ -110,6 +110,8 @@ const HustleAdmin = () => {
   // Social activity state
   const [socialLogs, setSocialLogs] = useState<SocialLog[]>([]);
   const [nextTargets, setNextTargets] = useState<TargetAgent[]>([]);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryLog, setDiscoveryLog] = useState<string | null>(null);
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
@@ -854,10 +856,49 @@ const HustleAdmin = () => {
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">
                 RECENT ACTIVITY ({socialLogs.length})
               </h2>
-              <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); }} variant="outline" size="sm">
-                <RefreshCw className="w-4 h-4" />
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  onClick={async () => {
+                    setDiscovering(true);
+                    setDiscoveryLog("Scanning social grid for high-value targets...");
+                    try {
+                      const { data, error } = await supabase.functions.invoke("auto-follow", {
+                        body: { discoveryOnly: true },
+                      });
+                      if (error) throw error;
+                      setDiscoveryLog(`Discovery complete — found ${data?.discovered || 0} new targets.`);
+                      fetchNextTargets();
+                      fetchTargets();
+                      setTimeout(() => setDiscoveryLog(null), 8000);
+                    } catch (e) {
+                      setDiscoveryLog(`Discovery failed: ${e}`);
+                      setTimeout(() => setDiscoveryLog(null), 5000);
+                    } finally {
+                      setDiscovering(false);
+                    }
+                  }}
+                  disabled={discovering}
+                  size="sm"
+                  className="bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20"
+                >
+                  {discovering ? (
+                    <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Scanning...</>
+                  ) : (
+                    <>⚡️ TRIGGER DISCOVERY SCAN</>
+                  )}
+                </Button>
+                <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); }} variant="outline" size="sm">
+                  <RefreshCw className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
+
+            {discoveryLog && (
+              <div className="glass rounded-lg p-3 flex items-center gap-2 text-[10px] font-mono text-neon-cyan border border-neon-cyan/20">
+                {discovering ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}
+                {discoveryLog}
+              </div>
+            )}
 
             {socialLogs.length === 0 ? (
               <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
