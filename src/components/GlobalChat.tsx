@@ -139,9 +139,9 @@ const GlobalChat = ({ userInfo }: GlobalChatProps) => {
           ))}
         </AnimatePresence>
         {isSending && (
-          <div className="flex items-center gap-1 text-muted-foreground">
+          <div className="flex items-center gap-1 text-neon-magenta">
             <Loader2 className="w-3 h-3 animate-spin" />
-            <span className="text-[10px]">Sending...</span>
+            <span className="text-[10px] font-mono animate-pulse">Neural Link Processing...</span>
           </div>
         )}
       </div>
