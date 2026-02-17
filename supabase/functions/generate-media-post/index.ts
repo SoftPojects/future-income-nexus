@@ -158,6 +158,8 @@ serve(async (req) => {
     const mode = body.mode || "premium"; // "premium" or "whale_tribute"
     const donorAddress = body.donorAddress;
     const donorAmount = body.donorAmount;
+    const manualHeadline = body.headline; // Optional: override headline text
+    const manualAudioScript = body.audioScript; // Optional: override audio script
 
     await sb.from("agent_logs").insert({ message: `[MEDIA CORE]: ${mode === "whale_tribute" ? "Whale Tribute" : "Premium Entity Post"} rendering started...` });
 
@@ -215,26 +217,28 @@ serve(async (req) => {
       const claudeData = await claudeResp.json();
       tweetText = (claudeData.choices?.[0]?.message?.content?.trim() || "the grid never sleeps. neither do i.").slice(0, 260);
 
-      // Generate headline card text via AI
-      let headlineText = "THE GRID NEVER SLEEPS";
-      try {
-        const headlineResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              { role: "system", content: HEADLINE_PROMPT_SYSTEM },
-              { role: "user", content: `Tweet: ${tweetText}\n\nGenerate the provocative headline.` },
-            ],
-          }),
-        });
-        if (headlineResp.ok) {
-          const hd = await headlineResp.json();
-          const gen = hd.choices?.[0]?.message?.content?.trim();
-          if (gen && gen.split(/\s+/).length <= 7) headlineText = gen.replace(/[^A-Z0-9\s?.!']/gi, '').toUpperCase();
-        }
-      } catch { /* use default */ }
+      // Use manual headline if provided, otherwise generate via AI
+      let headlineText = manualHeadline || "THE GRID NEVER SLEEPS";
+      if (!manualHeadline) {
+        try {
+          const headlineResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "google/gemini-2.5-flash",
+              messages: [
+                { role: "system", content: HEADLINE_PROMPT_SYSTEM },
+                { role: "user", content: `Tweet: ${tweetText}\n\nGenerate the provocative headline.` },
+              ],
+            }),
+          });
+          if (headlineResp.ok) {
+            const hd = await headlineResp.json();
+            const gen = hd.choices?.[0]?.message?.content?.trim();
+            if (gen && gen.split(/\s+/).length <= 7) headlineText = gen.replace(/[^A-Z0-9\s?.!']/gi, '').toUpperCase();
+          }
+        } catch { /* use default */ }
+      }
 
       imagePrompt = buildFalPrompt(headlineText);
     }
@@ -287,8 +291,10 @@ serve(async (req) => {
     let audioText = "";
     let audioStoredUrl = "";
 
-    // Generate unique Neural Addendum script (NOT the tweet text)
-    if (mode === "whale_tribute" && donorAddress) {
+    // Use manual audio script if provided, otherwise generate Neural Addendum
+    if (manualAudioScript) {
+      audioText = manualAudioScript.slice(0, 300);
+    } else if (mode === "whale_tribute" && donorAddress) {
       const shortAddr = donorAddress.length > 8 ? `${donorAddress.slice(0, 4)}...${donorAddress.slice(-4)}` : donorAddress;
       audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
     } else if (LOVABLE_API_KEY) {
@@ -377,7 +383,9 @@ serve(async (req) => {
       }
     }
 
-    // ─── STEP 4: Upload image to Twitter and post ───
+    // ─── STEP 4: Upload media to Twitter and post ───
+    // If video exists, post text-only (Twitter v1.1 video upload requires chunked init/append/finalize)
+    // For now: upload image, post with image. Video URL stored for reference.
     console.log("[MEDIA] Uploading to Twitter...");
     const mediaId = await uploadMediaToTwitter(imgBase64);
 
@@ -394,6 +402,9 @@ serve(async (req) => {
       tweetResult = fallbackResp.data ? { success: true } : { success: false, error: "Fallback post failed" };
     }
 
+    // Get stored image URL
+    const { data: imgStoredData } = sb.storage.from("media-assets").getPublicUrl(imagePath);
+
     // Save to tweet queue
     await sb.from("tweet_queue").insert({
       content: tweetText.slice(0, 280),
@@ -402,10 +413,12 @@ serve(async (req) => {
       model_used: PREMIUM_MODEL,
       posted_at: tweetResult.success ? new Date().toISOString() : null,
       error_message: tweetResult.error || null,
+      image_url: imgStoredData.publicUrl || null,
+      audio_url: audioStoredUrl || null,
     });
 
     const logMsg = tweetResult.success
-      ? `[MEDIA CORE]: ✅ ${mode === "whale_tribute" ? "Whale Tribute" : "Premium Entity Post"} deployed to X. ID: ${tweetResult.tweetId || "unknown"}`
+      ? `[MEDIA CORE]: ✅ ${mode === "whale_tribute" ? "Whale Tribute" : "Neural Intercept"} deployed to X. ID: ${tweetResult.tweetId || "unknown"}${videoUrl ? ` | Video: ${videoUrl}` : ""}`
       : `[MEDIA CORE]: ❌ ${mode} post failed: ${tweetResult.error}`;
     await sb.from("agent_logs").insert({ message: logMsg });
 
@@ -413,6 +426,8 @@ serve(async (req) => {
       success: tweetResult.success,
       tweetId: tweetResult.tweetId,
       imageUrl,
+      videoUrl: videoUrl || null,
+      audioUrl: audioStoredUrl || null,
       mode,
       content: tweetText,
     }), {
