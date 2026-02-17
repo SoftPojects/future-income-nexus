@@ -6,6 +6,29 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function fetchTTS(apiKey: string, voiceId: string, text: string): Promise<Response> {
+  return fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_flash_v2_5",
+        voice_settings: {
+          stability: 0.85,
+          similarity_boost: 0.6,
+          style: 0.2,
+          speed: 1.1,
+        },
+      }),
+    }
+  );
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -55,34 +78,24 @@ serve(async (req) => {
       trimmedText = trimmedText.slice(0, 120);
     }
 
-    // Victor voice — cold, authoritative male (PERMANENT identity)
-    const voiceId = "cPoqAvGWCPfCfyPMwe4z";
+    // Voice selection — try Victor (library voice, requires paid plan), fallback to Brian (pre-made, free tier)
+    const VICTOR_VOICE = "cPoqAvGWCPfCfyPMwe4z";
+    const BRIAN_VOICE = "nPczCjzI2devNBz1zQrb"; // Pre-made voice, works on free tier
+    
+    let voiceId = VICTOR_VOICE;
+    let response = await fetchTTS(ELEVENLABS_API_KEY, voiceId, trimmedText);
 
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: trimmedText,
-          model_id: "eleven_flash_v2_5",
-          voice_settings: {
-            stability: 0.85,
-            similarity_boost: 0.6,
-            style: 0.2,
-            speed: 1.1,
-          },
-        }),
-      }
-    );
+    // If 402 (payment required), fallback to free-tier voice
+    if (response.status === 402) {
+      console.log("Victor voice requires paid plan, falling back to Brian (free tier)");
+      voiceId = BRIAN_VOICE;
+      response = await fetchTTS(ELEVENLABS_API_KEY, voiceId, trimmedText);
+    }
 
     if (!response.ok) {
       const errText = await response.text();
       console.error("ElevenLabs TTS error:", response.status, errText);
-      return new Response(JSON.stringify({ error: "TTS generation failed" }), {
+      return new Response(JSON.stringify({ error: "TTS generation failed", detail: `${response.status}: ${errText.slice(0, 200)}` }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
