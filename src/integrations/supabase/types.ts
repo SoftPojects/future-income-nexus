@@ -158,6 +158,50 @@ export type Database = {
         }
         Relationships: []
       }
+      media_assets: {
+        Row: {
+          audio_url: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          image_url: string | null
+          status: string
+          tweet_id: string | null
+          updated_at: string
+          video_url: string | null
+        }
+        Insert: {
+          audio_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          image_url?: string | null
+          status?: string
+          tweet_id?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Update: {
+          audio_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          image_url?: string | null
+          status?: string
+          tweet_id?: string | null
+          updated_at?: string
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "media_assets_tweet_id_fkey"
+            columns: ["tweet_id"]
+            isOneToOne: false
+            referencedRelation: "tweet_queue"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       social_logs: {
         Row: {
           action_type: string

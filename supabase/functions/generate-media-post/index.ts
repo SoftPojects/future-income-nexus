@@ -458,247 +458,83 @@ serve(async (req) => {
       upsert: true,
     });
 
-    // ─── STEP 3: Generate Neural Addendum audio via ElevenLabs ───
-    console.log("[MEDIA] Generating Neural Addendum audio...");
-    let audioText = "";
-    let audioStoredUrl = "";
-
-    // Use manual audio script if provided, otherwise generate Neural Addendum
-    if (manualAudioScript) {
-      audioText = manualAudioScript.slice(0, 500);
-    } else if (mode === "whale_tribute" && donorAddress) {
-      const shortAddr = donorAddress.length > 8 ? `${donorAddress.slice(0, 4)}...${donorAddress.slice(-4)}` : donorAddress;
-      audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
-    } else {
-      // Use Claude 3.5 via OpenRouter for longer, higher-quality scripts
-      // RETRY LOOP: Script MUST be >= 300 chars or we reject and retry (max 3 attempts)
-      const scriptUrl = OPENROUTER_API_KEY ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
-      const scriptHeaders = OPENROUTER_API_KEY
-        ? { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" }
-        : { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" };
-
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const retryHint = attempt > 0 ? `\n\nPREVIOUS ATTEMPT WAS TOO SHORT (${audioText.length} chars). You MUST write MORE. Expand with market analysis, roast human traders, mention specific numbers. MINIMUM 350 characters.` : "";
-          const scriptBody: any = {
-            model: OPENROUTER_API_KEY ? PREMIUM_MODEL : "google/gemini-2.5-flash",
-            temperature: 0.85,
-            messages: [
-              { role: "system", content: NEURAL_ADDENDUM_SYSTEM },
-              { role: "user", content: `Tweet: ${tweetText}\nAgent balance: $${(agent?.total_hustled || 364.54).toFixed(2)}\n\nGenerate the Neural Addendum voiceover. Remember: MINIMUM 350 characters. Be dramatic and slow-paced.${retryHint}` },
-            ],
-          };
-          if (OPENROUTER_API_KEY) scriptBody.max_tokens = 1024;
-
-          const addendumResp = await fetch(scriptUrl, {
-            method: "POST",
-            headers: scriptHeaders,
-            body: JSON.stringify(scriptBody),
-          });
-          if (addendumResp.ok) {
-            const ad = await addendumResp.json();
-            let gen = ad.choices?.[0]?.message?.content?.trim() || "";
-            // Strip surrounding quotes
-            if ((gen.startsWith('"') && gen.endsWith('"')) || (gen.startsWith("'") && gen.endsWith("'"))) {
-              gen = gen.slice(1, -1);
-            }
-            console.log(`[MEDIA] Neural Addendum attempt ${attempt + 1}: ${gen.length} chars`);
-
-            if (gen.length >= 300) {
-              audioText = gen.slice(0, 500);
-              console.log(`[MEDIA] ✅ Script accepted (${audioText.length} chars)`);
-              break;
-            } else {
-              audioText = gen; // Save for retry hint
-              console.warn(`[MEDIA] ❌ Script REJECTED (${gen.length} chars < 300 minimum), retrying...`);
-              await sb.from("agent_logs").insert({
-                message: `[MEDIA CORE]: ⚠️ Script attempt ${attempt + 1} rejected (${gen.length} chars < 300 min)`,
-              });
-            }
-          }
-        } catch (e) {
-          console.error(`[MEDIA] Script generation attempt ${attempt + 1} failed:`, e);
-        }
-      }
-
-      // Final fallback if all attempts failed
-      if (audioText.length < 300) {
-        console.warn("[MEDIA] All script attempts failed, using FALLBACK_SCRIPT");
-        audioText = FALLBACK_SCRIPT;
-        await sb.from("agent_logs").insert({
-          message: `[MEDIA CORE]: ⚠️ All 3 script attempts too short, using fallback (${FALLBACK_SCRIPT.length} chars)`,
-        });
-      }
-    }
-
-    console.log(`[MEDIA] Final audio script (${audioText.length} chars): ${audioText.slice(0, 80)}...`);
-
-    const ttsResp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128`, {
-      method: "POST",
-      headers: {
-        "xi-api-key": ELEVENLABS_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: audioText,
-        model_id: "eleven_multilingual_v2",
-        voice_settings: {
-          stability: 0.8,
-          similarity_boost: 0.75,
-          style: 0.25,
-          use_speaker_boost: true,
-          speed: 0.8,
-        },
-      }),
-    });
-
-    if (!ttsResp.ok) {
-      console.error("ElevenLabs TTS failed:", ttsResp.status, await ttsResp.text());
-    } else {
-      const audioBuffer = await ttsResp.arrayBuffer();
-      const audioPath = `${mode}/${timestamp}.mp3`;
-      await sb.storage.from("media-assets").upload(audioPath, new Uint8Array(audioBuffer), {
-        contentType: "audio/mpeg",
-        upsert: true,
-      });
-      const { data: audioUrlData } = sb.storage.from("media-assets").getPublicUrl(audioPath);
-      audioStoredUrl = audioUrlData.publicUrl;
-      console.log("[MEDIA] Neural Addendum audio stored:", audioPath);
-    }
-
-    // ─── STEP 3.5: Merge into video via Shotstack (MANDATORY when audio exists) ───
-    let videoUrl = "";
-    let videoBase64 = "";
-    const SHOTSTACK_API_KEY = Deno.env.get("SHOTSTACK_API_KEY");
-    if (audioStoredUrl && SHOTSTACK_API_KEY) {
-      try {
-        const { data: imgUrlData } = sb.storage.from("media-assets").getPublicUrl(imagePath);
-        console.log("[MEDIA] Calling merge-video with Shotstack...");
-        const mergeResp = await fetch(`${supabaseUrl}/functions/v1/merge-video`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${serviceKey}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            imageUrl: imgUrlData.publicUrl,
-            audioUrl: audioStoredUrl,
-            tweetId: null,
-          }),
-        });
-        if (mergeResp.ok) {
-          const mergeData = await mergeResp.json();
-          videoUrl = mergeData.videoUrl || "";
-          console.log("[MEDIA] Video merged:", videoUrl);
-
-          // Download video for Twitter upload
-          if (videoUrl) {
-            const vidResp = await fetch(videoUrl);
-            const vidBuffer = await vidResp.arrayBuffer();
-            videoBase64 = base64Encode(vidBuffer);
-            console.log(`[MEDIA] Video downloaded for upload: ${vidBuffer.byteLength} bytes`);
-          }
-        } else {
-          const errText = await mergeResp.text();
-          console.error("[MEDIA] Video merge failed:", errText);
-          await sb.from("agent_logs").insert({
-            message: `[MEDIA CORE]: ⚠️ Shotstack merge FAILED: ${errText.slice(0, 300)}`,
-          });
-        }
-      } catch (e) {
-        console.error("[MEDIA] Video merge error:", e);
-        await sb.from("agent_logs").insert({
-          message: `[MEDIA CORE]: ⚠️ Shotstack error: ${e instanceof Error ? e.message : "Unknown"}`,
-        });
-      }
-    }
-
-    // ─── STEP 4: Upload media to Twitter and post ───
-    // CRITICAL: If audio was generated, video is MANDATORY. Do NOT post image-only.
-    console.log("[MEDIA] Uploading to Twitter...");
-    let mediaId: string | null = null;
-
-    if (videoBase64) {
-      // Upload MP4 video via chunked upload
-      console.log("[MEDIA] Uploading VIDEO to Twitter (chunked)...");
-      mediaId = await uploadMediaToTwitter(videoBase64, "video");
-      if (mediaId) {
-        console.log("[MEDIA] Video uploaded to Twitter:", mediaId);
-      } else {
-        console.error("[MEDIA] ❌ Video upload FAILED. Aborting post — will NOT fall back to image when audio exists.");
-        await sb.from("agent_logs").insert({
-          message: `[MEDIA CORE]: ❌ Twitter video upload failed. Post ABORTED — no image fallback when audio exists.`,
-        });
-        throw new Error("Video upload to Twitter failed. Post aborted to prevent audio-less image post.");
-      }
-    } else if (!audioStoredUrl) {
-      // Only fall back to image if there's NO audio
-      console.log("[MEDIA] No audio — uploading IMAGE to Twitter...");
-      mediaId = await uploadMediaToTwitter(imgBase64, "image");
-    } else {
-      // Audio exists but no video was generated — abort
-      console.error("[MEDIA] ❌ Audio exists but video merge failed. Aborting post.");
-      await sb.from("agent_logs").insert({
-        message: `[MEDIA CORE]: ❌ Audio generated but Shotstack merge failed. Post ABORTED.`,
-      });
-      throw new Error("Audio generated but video merge failed. Post aborted.");
-    }
+    // ─── STEP 3: Upload image to Twitter and post IMMEDIATELY (fast path <25s) ───
+    console.log("[MEDIA] FAST PATH: Uploading image to Twitter...");
+    const imgMediaId = await uploadMediaToTwitter(imgBase64, "image");
 
     let tweetResult: { success: boolean; tweetId?: string; error?: string };
-
-    if (mediaId) {
-      tweetResult = await postTweetWithMedia(tweetText.slice(0, 280), mediaId);
+    if (imgMediaId) {
+      tweetResult = await postTweetWithMedia(tweetText.slice(0, 280), imgMediaId);
     } else {
-      // Last resort: text-only
-      console.warn("[MEDIA] All media uploads failed, falling back to text-only post");
-      const fallbackResp = await sb.functions.invoke("post-tweet", {
-        body: { directPost: tweetText.slice(0, 280) },
-      });
+      // Fallback to text-only
+      console.warn("[MEDIA] Image upload failed, posting text-only");
+      const fallbackResp = await sb.functions.invoke("post-tweet", { body: { directPost: tweetText.slice(0, 280) } });
       tweetResult = fallbackResp.data ? { success: true } : { success: false, error: "Fallback post failed" };
     }
 
     // Get stored image URL
     const { data: imgStoredData } = sb.storage.from("media-assets").getPublicUrl(imagePath);
+    const storedImageUrl = imgStoredData.publicUrl;
 
     // Save to tweet queue
-    await sb.from("tweet_queue").insert({
+    const { data: insertedTweet } = await sb.from("tweet_queue").insert({
       content: tweetText.slice(0, 280),
       status: tweetResult.success ? "posted" : "error",
       type: mode === "whale_tribute" ? "whale_tribute" : "premium",
       model_used: PREMIUM_MODEL,
       posted_at: tweetResult.success ? new Date().toISOString() : null,
       error_message: tweetResult.error || null,
-      image_url: imgStoredData.publicUrl || null,
-      audio_url: audioStoredUrl || null,
-    });
+      image_url: storedImageUrl || null,
+      audio_url: null,
+    }).select("id").single();
 
-    const mediaType = videoBase64 && mediaId ? "VIDEO" : "IMAGE";
+    const tweetId = insertedTweet?.id || null;
+
+    // ─── STEP 4: Create media_assets record and fire async worker ───
+    let mediaAssetId: string | null = null;
+    if (tweetId) {
+      const { data: assetRow } = await sb.from("media_assets").insert({
+        tweet_id: tweetId,
+        image_url: storedImageUrl,
+        status: "pending",
+      }).select("id").single();
+      mediaAssetId = assetRow?.id || null;
+
+      // Fire-and-forget async worker for audio + video
+      if (mediaAssetId) {
+        console.log(`[MEDIA] Triggering async-media-worker for asset ${mediaAssetId}`);
+        fetch(`${supabaseUrl}/functions/v1/async-media-worker`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${serviceKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ mediaAssetId }),
+        }).catch(e => console.error("[MEDIA] Async worker trigger failed:", e));
+      }
+    }
+
     const logMsg = tweetResult.success
-      ? `[MEDIA CORE]: ✅ Neural Intercept (${mediaType}) deployed to X. ID: ${tweetResult.tweetId || "unknown"}${videoUrl ? ` | Video: ${videoUrl}` : ""}`
+      ? `[MEDIA CORE]: ✅ Fast-path IMAGE deployed to X. ID: ${tweetResult.tweetId || "unknown"}. Async media queued: ${mediaAssetId || "none"}`
       : `[MEDIA CORE]: ❌ ${mode} post failed: ${tweetResult.error}`;
     await sb.from("agent_logs").insert({ message: logMsg });
 
     return new Response(JSON.stringify({
       success: tweetResult.success,
       tweetId: tweetResult.tweetId,
-      imageUrl,
-      videoUrl: videoUrl || null,
-      audioUrl: audioStoredUrl || null,
+      queueId: tweetId,
+      imageUrl: storedImageUrl,
+      mediaAssetId,
       mode,
-      mediaType,
+      mediaType: "IMAGE",
+      asyncPending: true,
       content: tweetText,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
     console.error("generate-media-post error:", e);
-
-    // Log failure
     try {
       const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
       await sb.from("agent_logs").insert({ message: `[MEDIA CORE]: ❌ Error: ${e instanceof Error ? e.message : "Unknown"}` });
     } catch {}
-
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

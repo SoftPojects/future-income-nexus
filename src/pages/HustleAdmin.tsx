@@ -1,14 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, Camera, Mic, X } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, Camera, Mic, X, Download, RotateCcw, Play, Pause, Image as ImageIcon, Volume2, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useTotalSolDonated } from "@/hooks/useTotalSolDonated";
 
 interface TweetQueueItem {
   id: string;
@@ -21,6 +23,18 @@ interface TweetQueueItem {
   error_message?: string | null;
   image_url?: string | null;
   audio_url?: string | null;
+}
+
+interface MediaAsset {
+  id: string;
+  tweet_id: string | null;
+  image_url: string | null;
+  audio_url: string | null;
+  video_url: string | null;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface XMention {
@@ -52,10 +66,6 @@ interface SocialLog {
 }
 
 // ─── TIMEZONE-AWARE SCHEDULE LABELS ───
-// Prime time windows in UTC:
-// Slot 1 (US Morning):    UTC 14:00-15:00
-// Slot 2 (US Lunch):      UTC 17:00-18:30
-// Slot 3 (US Afternoon):  UTC 20:00-21:30
 function getScheduleLabel(scheduledAt: string, type: string): { label: string; isPrime: boolean } {
   if (type === "breaking") return { label: "🚨 BREAKING NEWS", isPrime: true };
   if (type === "premium") return { label: "🎬 PREMIUM ENTITY POST", isPrime: true };
@@ -74,7 +84,6 @@ function getScheduleLabel(scheduledAt: string, type: string): { label: string; i
   return { label: "OFF-PEAK FILLER", isPrime: false };
 }
 
-// Calculate next scheduled post time (every 4 hours from midnight UTC)
 function getNextScheduledPost(): Date {
   const now = new Date();
   const hours = now.getUTCHours();
@@ -104,11 +113,30 @@ function useCountdown(target: Date) {
   return timeLeft;
 }
 
+// ─── Media Badge Component ───
+const MediaBadge = ({ type, ready }: { type: "img" | "voice" | "video"; ready: boolean }) => {
+  const config = {
+    img: { icon: ImageIcon, label: "IMG", colorReady: "bg-neon-green/15 text-neon-green border-neon-green/30", colorPending: "bg-muted text-muted-foreground border-border" },
+    voice: { icon: Volume2, label: "VOICE", colorReady: "bg-neon-magenta/15 text-neon-magenta border-neon-magenta/30", colorPending: "bg-muted text-muted-foreground border-border" },
+    video: { icon: Video, label: "VIDEO", colorReady: "bg-neon-cyan/15 text-neon-cyan border-neon-cyan/30", colorPending: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" },
+  };
+  const c = config[type];
+  const Icon = c.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold border ${ready ? c.colorReady : c.colorPending}`}>
+      <Icon className="w-3 h-3" />
+      {c.label}
+    </span>
+  );
+};
+
 const HustleAdmin = () => {
   const { toast } = useToast();
+  const { totalSol } = useTotalSolDonated();
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
   const [tweets, setTweets] = useState<TweetQueueItem[]>([]);
+  const [mediaAssets, setMediaAssets] = useState<Record<string, MediaAsset>>({});
   const [mentions, setMentions] = useState<XMention[]>([]);
   const [manualTweet, setManualTweet] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -145,160 +173,94 @@ const HustleAdmin = () => {
   const [editingHandle, setEditingHandle] = useState("");
   const [injectingMedia, setInjectingMedia] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [previewAudio, setPreviewAudio] = useState<string | null>(null);
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
+  const [previewVideo, setPreviewVideo] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
     return token ? { Authorization: `Bearer ${token}` } : {};
   };
+  const getAdminToken = () => sessionStorage.getItem("admin_token") || "";
 
   const fetchTweets = useCallback(async () => {
-    const { data } = await supabase
-      .from("tweet_queue")
-      .select("*")
-      .order("scheduled_at", { ascending: true });
+    const { data } = await supabase.from("tweet_queue").select("*").order("scheduled_at", { ascending: true });
     if (data) setTweets(data);
   }, []);
 
+  const fetchMediaAssets = useCallback(async () => {
+    const { data } = await supabase.from("media_assets").select("*").order("created_at", { ascending: false });
+    if (data) {
+      const map: Record<string, MediaAsset> = {};
+      data.forEach((a: any) => { if (a.tweet_id) map[a.tweet_id] = a; });
+      setMediaAssets(map);
+    }
+  }, []);
+
   const fetchMentions = useCallback(async () => {
-    const { data } = await supabase
-      .from("x_mentions")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(50);
+    const { data } = await supabase.from("x_mentions").select("*").order("created_at", { ascending: false }).limit(50);
     if (data) setMentions(data);
   }, []);
 
-  const getAdminToken = () => sessionStorage.getItem("admin_token") || "";
-
   const fetchTargets = useCallback(async () => {
-    const { data, error } = await supabase.functions.invoke("admin-hunter", {
-      body: { action: "list", admin_token: getAdminToken() },
-    });
+    const { data, error } = await supabase.functions.invoke("admin-hunter", { body: { action: "list", admin_token: getAdminToken() } });
     if (!error && data?.targets) setTargets(data.targets);
   }, []);
 
   const fetchSocialLogs = useCallback(async () => {
-    const { data } = await supabase
-      .from("social_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(20);
+    const { data } = await supabase.from("social_logs").select("*").order("created_at", { ascending: false }).limit(20);
     if (data) setSocialLogs(data);
   }, []);
 
   const fetchNextTargets = useCallback(async () => {
-    const { data } = await supabase
-      .from("target_agents")
-      .select("*")
-      .eq("auto_follow", true)
-      .eq("is_active", true)
-      .is("followed_at", null)
-      .order("priority", { ascending: true })
-      .order("created_at", { ascending: true })
-      .limit(5);
+    const { data } = await supabase.from("target_agents").select("*").eq("auto_follow", true).eq("is_active", true).is("followed_at", null).order("priority", { ascending: true }).order("created_at", { ascending: true }).limit(5);
     if (data) setNextTargets(data);
   }, []);
 
   const fetchExecCount = useCallback(async () => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-    const { count } = await supabase
-      .from("social_logs")
-      .select("*", { count: "exact", head: true })
-      .gte("created_at", oneHourAgo)
-      .eq("source", "manual_exec");
+    const { count } = await supabase.from("social_logs").select("*", { count: "exact", head: true }).gte("created_at", oneHourAgo).eq("source", "manual_exec");
     setRecentExecCount(count || 0);
   }, []);
-
-  const handleExecuteNow = async (target: TargetAgent) => {
-    if (recentExecCount >= 5) {
-      toast({ title: "⚠️ RATE LIMIT", description: "Max 5 manual executions per hour. Wait before trying again.", variant: "destructive" });
-      return;
-    }
-    setExecutingId(target.id);
-    try {
-      const { data, error } = await supabase.functions.invoke("execute-social-action", {
-        body: { targetId: target.id },
-      });
-      if (error) throw error;
-      if (data?.rateLimited) {
-        toast({ title: "⚠️ RATE LIMIT", description: data.error, variant: "destructive" });
-        return;
-      }
-      const actions = [data?.followed && "Followed", data?.liked && "Liked"].filter(Boolean).join(" & ");
-      toast({ title: actions ? `${actions} @${data.handle}` : "PARTIAL", description: data?.details?.join(", ") || "Done" });
-      fetchSocialLogs();
-      fetchNextTargets();
-      fetchExecCount();
-    } catch (e) {
-      toast({ title: "Execution failed", description: String(e), variant: "destructive" });
-    } finally {
-      setExecutingId(null);
-    }
-  };
-  const handleEditTargetHandle = async (id: string, newHandle: string) => {
-    const clean = newHandle.replace(/^@/, "").trim();
-    if (!clean) return;
-    try {
-      await supabase.functions.invoke("admin-hunter", {
-        body: { action: "update_handle", id, x_handle: clean, admin_token: getAdminToken() },
-      });
-      toast({ title: "HANDLE UPDATED", description: `Changed to @${clean}` });
-      setEditingTargetId(null);
-      setEditingHandle("");
-      fetchNextTargets();
-      fetchTargets();
-    } catch (e) {
-      toast({ title: "Update failed", description: String(e), variant: "destructive" });
-    }
-  };
-
-  const handleDeleteNextTarget = async (id: string) => {
-    try {
-      await supabase.functions.invoke("admin-hunter", {
-        body: { action: "delete", id, admin_token: getAdminToken() },
-      });
-      toast({ title: "TARGET REMOVED", description: "Removed from queue." });
-      fetchNextTargets();
-      fetchTargets();
-    } catch (e) {
-      toast({ title: "Delete failed", description: String(e), variant: "destructive" });
-    }
-  };
 
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
+      fetchMediaAssets();
       fetchMentions();
       fetchTargets();
       fetchSocialLogs();
       fetchNextTargets();
       fetchExecCount();
-    }
-  }, [authenticated, fetchTweets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount]);
 
+      // Subscribe to media_assets realtime
+      const channel = supabase
+        .channel("media-assets-realtime")
+        .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => fetchMediaAssets())
+        .subscribe();
+      return () => { supabase.removeChannel(channel); };
+    }
+  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount]);
+
+  // ─── AUTH ───
   const handleLogin = async () => {
     if (!password.trim() || loginLoading) return;
     setLoginLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke("admin-auth", {
-        body: { password },
-      });
+      const { data, error } = await supabase.functions.invoke("admin-auth", { body: { password } });
       if (error || !data?.success) {
         toast({ title: "ACCESS DENIED", description: data?.error || "Wrong password, human.", variant: "destructive" });
       } else {
         sessionStorage.setItem("admin_token", data.token);
         setAuthenticated(true);
       }
-    } catch (e) {
+    } catch {
       toast({ title: "ACCESS DENIED", description: "Authentication failed.", variant: "destructive" });
-    } finally {
-      setLoginLoading(false);
-      setPassword("");
-    }
+    } finally { setLoginLoading(false); setPassword(""); }
   };
 
+  // ─── TWEET ACTIONS ───
   const handleGenerateNow = async () => {
     setGenerating(true);
     try {
@@ -306,125 +268,75 @@ const HustleAdmin = () => {
       if (error) throw error;
       toast({ title: "TWEET GENERATED", description: data?.content?.slice(0, 60) + "..." });
       fetchTweets();
-    } catch (e) {
-      toast({ title: "Generation failed", description: String(e), variant: "destructive" });
-    } finally {
-      setGenerating(false);
-    }
+    } catch (e) { toast({ title: "Generation failed", description: String(e), variant: "destructive" }); }
+    finally { setGenerating(false); }
   };
 
   const handleBatchPreGenerate = async () => {
     setBatchGenerating(true);
     try {
-      const { data, error } = await supabase.functions.invoke("auto-post", {
-        body: { batchPreGenerate: true },
-      });
+      const { data, error } = await supabase.functions.invoke("auto-post", { body: { batchPreGenerate: true } });
       if (error) throw error;
-      toast({ title: "BATCH GENERATED", description: `${data?.generated || 0} tweets pre-generated for next 24h.` });
+      toast({ title: "BATCH GENERATED", description: `${data?.generated || 0} tweets pre-generated.` });
       fetchTweets();
-    } catch (e) {
-      toast({ title: "Batch generation failed", description: String(e), variant: "destructive" });
-    } finally {
-      setBatchGenerating(false);
-    }
+    } catch (e) { toast({ title: "Batch failed", description: String(e), variant: "destructive" }); }
+    finally { setBatchGenerating(false); }
   };
 
   const handleInjectMedia = async () => {
-    // Find US MORNING PEAK and US LUNCH PEAK tweets
     const targetTweets = tweets.filter((t) => t.status === "pending").filter((t) => {
       const { label } = getScheduleLabel(t.scheduled_at, t.type);
       return label.includes("US MORNING PEAK") || label.includes("US LUNCH PEAK");
     });
     if (!targetTweets.length) {
-      toast({ title: "NO TARGETS", description: "No US Morning/Lunch peak tweets found in queue.", variant: "destructive" });
+      toast({ title: "NO TARGETS", description: "No US Morning/Lunch peak tweets found.", variant: "destructive" });
       return;
     }
     setInjectingMedia(true);
     setMediaStatus("rendering");
     try {
-      const { data, error } = await supabase.functions.invoke("inject-media", {
-        body: { tweetIds: targetTweets.map((t) => t.id), voiceMode: "paid" },
-      });
+      const { data, error } = await supabase.functions.invoke("inject-media", { body: { tweetIds: targetTweets.map((t) => t.id), voiceMode: "paid" } });
       if (error) throw error;
-      const generated = data?.results?.filter((r: any) => r.image_url || r.audio_url)?.length || 0;
-      toast({ title: "MEDIA INJECTED", description: `${generated}/${targetTweets.length} tweets enriched with visuals/audio.` });
+      toast({ title: "MEDIA INJECTED", description: `${data?.results?.filter((r: any) => r.image_url)?.length || 0} enriched.` });
       setMediaStatus("ready");
       fetchTweets();
-    } catch (e) {
-      setMediaStatus("error");
-      toast({ title: "Media injection failed", description: String(e), variant: "destructive" });
-    } finally {
-      setInjectingMedia(false);
-    }
-  };
-
-  const handleStopAudio = () => {
-    if (playingAudio) {
-      playingAudio.pause();
-      playingAudio.currentTime = 0;
-      setPlayingAudio(null);
-    }
-  };
-
-  const handlePlayPreview = (url: string) => {
-    handleStopAudio();
-    const audio = new Audio(url);
-    audio.onended = () => setPlayingAudio(null);
-    audio.play();
-    setPlayingAudio(audio);
+    } catch (e) { setMediaStatus("error"); toast({ title: "Media injection failed", description: String(e), variant: "destructive" }); }
+    finally { setInjectingMedia(false); }
   };
 
   const handleManualPost = async () => {
     if (!manualTweet.trim()) return;
     setPosting(true);
     try {
-      const { error } = await supabase.functions.invoke("admin-tweet-actions", {
-        body: { action: "insert", content: manualTweet.trim(), type: "manual" },
-        headers: getAdminHeaders(),
-      });
+      const { error } = await supabase.functions.invoke("admin-tweet-actions", { body: { action: "insert", content: manualTweet.trim(), type: "manual" }, headers: getAdminHeaders() });
       if (error) throw error;
       setManualTweet("");
-      toast({ title: "QUEUED", description: "Manual tweet added to queue." });
+      toast({ title: "QUEUED", description: "Manual tweet added." });
       fetchTweets();
-    } catch (e) {
-      toast({ title: "Failed", description: String(e), variant: "destructive" });
-    } finally {
-      setPosting(false);
-    }
+    } catch (e) { toast({ title: "Failed", description: String(e), variant: "destructive" }); }
+    finally { setPosting(false); }
   };
 
   const handlePostNow = async (id: string) => {
     try {
       const { error } = await supabase.functions.invoke("post-tweet", { body: { tweetId: id }, headers: getAdminHeaders() });
       if (error) throw error;
-      toast({ title: "POSTED", description: "Tweet sent to X." });
+      toast({ title: "POSTED" });
       fetchTweets();
-    } catch (e) {
-      toast({ title: "Post failed", description: String(e), variant: "destructive" });
-    }
+    } catch (e) { toast({ title: "Post failed", description: String(e), variant: "destructive" }); }
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.functions.invoke("admin-tweet-actions", {
-      body: { action: "delete", id },
-      headers: getAdminHeaders(),
-    });
+    await supabase.functions.invoke("admin-tweet-actions", { body: { action: "delete", id }, headers: getAdminHeaders() });
     fetchTweets();
   };
 
-  const handleEdit = (tweet: TweetQueueItem) => {
-    setEditingId(tweet.id);
-    setEditContent(tweet.content);
-  };
+  const handleEdit = (tweet: TweetQueueItem) => { setEditingId(tweet.id); setEditContent(tweet.content); };
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
-    await supabase.functions.invoke("admin-tweet-actions", {
-      body: { action: "update", id: editingId, content: editContent },
-      headers: getAdminHeaders(),
-    });
-    setEditingId(null);
-    setEditContent("");
+    await supabase.functions.invoke("admin-tweet-actions", { body: { action: "update", id: editingId, content: editContent }, headers: getAdminHeaders() });
+    setEditingId(null); setEditContent("");
     fetchTweets();
   };
 
@@ -432,9 +344,7 @@ const HustleAdmin = () => {
     try {
       const { error } = await supabase.functions.invoke("post-tweet", { body: { healthCheck: true } });
       setApiStatus(error ? "error" : "connected");
-    } catch {
-      setApiStatus("error");
-    }
+    } catch { setApiStatus("error"); }
   };
 
   const handleForceSync = async () => {
@@ -442,105 +352,139 @@ const HustleAdmin = () => {
     try {
       const { data, error } = await supabase.functions.invoke("post-pending-tweets", { body: {} });
       if (error) throw error;
-      toast({
-        title: "FORCE SYNC COMPLETE",
-        description: `Posted: ${data?.posted || 0}, Rescheduled: ${data?.rescheduled || 0}${data?.error ? `, Error: ${data.error}` : ""}`,
-      });
+      toast({ title: "FORCE SYNC COMPLETE", description: `Posted: ${data?.posted || 0}` });
       fetchTweets();
-    } catch (e) {
-      toast({ title: "Sync failed", description: String(e), variant: "destructive" });
-    } finally {
-      setSyncing(false);
-    }
+    } catch (e) { toast({ title: "Sync failed", description: String(e), variant: "destructive" }); }
+    finally { setSyncing(false); }
   };
 
-  useEffect(() => {
-    if (authenticated) checkApiStatus();
-  }, [authenticated]);
+  useEffect(() => { if (authenticated) checkApiStatus(); }, [authenticated]);
 
+  // ─── MEDIA CONTROLS ───
+  const handleStopAudio = () => {
+    if (playingAudio) { playingAudio.pause(); playingAudio.currentTime = 0; setPlayingAudio(null); setPlayingAudioId(null); }
+  };
+
+  const handlePlayPreview = (url: string, id: string) => {
+    handleStopAudio();
+    const audio = new Audio(url);
+    audio.onended = () => { setPlayingAudio(null); setPlayingAudioId(null); };
+    audio.play();
+    setPlayingAudio(audio);
+    setPlayingAudioId(id);
+  };
+
+  const handleRegenerateMedia = async (tweetId: string) => {
+    setRegeneratingId(tweetId);
+    try {
+      // Find existing asset or create new one
+      const tweet = tweets.find(t => t.id === tweetId);
+      const existingAsset = mediaAssets[tweetId];
+
+      if (existingAsset) {
+        // Reset and re-trigger
+        await supabase.from("media_assets").update({ status: "pending", audio_url: null, video_url: null, error_message: null, updated_at: new Date().toISOString() }).eq("id", existingAsset.id);
+        await supabase.functions.invoke("async-media-worker", { body: { mediaAssetId: existingAsset.id } });
+      } else if (tweet?.image_url) {
+        // Create new asset
+        const { data: newAsset } = await supabase.from("media_assets").insert({ tweet_id: tweetId, image_url: tweet.image_url, status: "pending" }).select("id").single();
+        if (newAsset) {
+          await supabase.functions.invoke("async-media-worker", { body: { mediaAssetId: newAsset.id } });
+        }
+      } else {
+        toast({ title: "NO IMAGE", description: "Tweet has no image to build media from.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "REGENERATING", description: "Audio + video rendering started..." });
+      fetchMediaAssets();
+    } catch (e) {
+      toast({ title: "Regeneration failed", description: String(e), variant: "destructive" });
+    } finally { setRegeneratingId(null); }
+  };
+
+  // ─── HUNTER ───
   const handleAddTarget = async () => {
     if (!newHandle.trim()) return;
     setAddingTarget(true);
     try {
-      const { error } = await supabase.functions.invoke("admin-hunter", {
-        body: { action: "add", x_handle: newHandle.trim(), admin_token: getAdminToken() },
-      });
+      const { error } = await supabase.functions.invoke("admin-hunter", { body: { action: "add", x_handle: newHandle.trim(), admin_token: getAdminToken() } });
       if (error) throw error;
       setNewHandle("");
-      toast({ title: "TARGET ACQUIRED", description: `@${newHandle.trim()} added to kill list.` });
+      toast({ title: "TARGET ACQUIRED", description: `@${newHandle.trim()} added.` });
       fetchTargets();
-    } catch (e) {
-      toast({ title: "Failed", description: String(e), variant: "destructive" });
-    } finally {
-      setAddingTarget(false);
-    }
+    } catch (e) { toast({ title: "Failed", description: String(e), variant: "destructive" }); }
+    finally { setAddingTarget(false); }
   };
 
   const handleRoastNow = async (id: string) => {
     setRoastingId(id);
     try {
-      const { data, error } = await supabase.functions.invoke("admin-hunter", {
-        body: { action: "roast", id, admin_token: getAdminToken() },
-      });
+      const { data, error } = await supabase.functions.invoke("admin-hunter", { body: { action: "roast", id, admin_token: getAdminToken() } });
       if (error) throw error;
       toast({ title: "ROAST DEPLOYED", description: data?.content?.slice(0, 80) + "..." });
-      fetchTargets();
-      fetchTweets();
-    } catch (e) {
-      toast({ title: "Roast failed", description: String(e), variant: "destructive" });
-    } finally {
-      setRoastingId(null);
-    }
+      fetchTargets(); fetchTweets();
+    } catch (e) { toast({ title: "Roast failed", description: String(e), variant: "destructive" }); }
+    finally { setRoastingId(null); }
   };
 
   const handleDeleteTarget = async (id: string) => {
-    await supabase.functions.invoke("admin-hunter", {
-      body: { action: "delete", id, admin_token: getAdminToken() },
-    });
+    await supabase.functions.invoke("admin-hunter", { body: { action: "delete", id, admin_token: getAdminToken() } });
     fetchTargets();
   };
 
   const handleToggleFollow = async (target: TargetAgent) => {
     try {
-      const { error } = await supabase.functions.invoke("admin-hunter", {
-        body: { action: "toggle_follow", id: target.id, auto_follow: !target.auto_follow, admin_token: getAdminToken() },
-      });
+      const { error } = await supabase.functions.invoke("admin-hunter", { body: { action: "toggle_follow", id: target.id, auto_follow: !target.auto_follow, admin_token: getAdminToken() } });
       if (error) throw error;
-      toast({ title: target.auto_follow ? "AUTO-FOLLOW OFF" : "AUTO-FOLLOW ON", description: `@${target.x_handle}` });
+      toast({ title: target.auto_follow ? "AUTO-FOLLOW OFF" : "AUTO-FOLLOW ON" });
       fetchTargets();
-    } catch (e) {
-      toast({ title: "Failed", description: String(e), variant: "destructive" });
-    }
+    } catch (e) { toast({ title: "Failed", description: String(e), variant: "destructive" }); }
   };
 
   const handleGenerateDrafts = async (target: TargetAgent) => {
     setDraftingId(target.id);
     try {
-      const { data, error } = await supabase.functions.invoke("admin-hunter", {
-        body: { action: "drafts", id: target.id, admin_token: getAdminToken() },
-      });
+      const { data, error } = await supabase.functions.invoke("admin-hunter", { body: { action: "drafts", id: target.id, admin_token: getAdminToken() } });
       if (error) throw error;
       if (data?.drafts) {
         setDrafts((prev) => ({ ...prev, [target.id]: data.drafts }));
         setExpandedDrafts((prev) => ({ ...prev, [target.id]: true }));
-        toast({ title: "DRAFTS READY", description: `${data.drafts.length} roast drafts for @${target.x_handle}` });
       }
-    } catch (e) {
-      toast({ title: "Draft generation failed", description: String(e), variant: "destructive" });
-    } finally {
-      setDraftingId(null);
-    }
+    } catch (e) { toast({ title: "Draft failed", description: String(e), variant: "destructive" }); }
+    finally { setDraftingId(null); }
   };
 
-  const handleCopyDraft = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast({ title: "COPIED", description: "Draft copied to clipboard." });
+  const handleExecuteNow = async (target: TargetAgent) => {
+    if (recentExecCount >= 5) { toast({ title: "⚠️ RATE LIMIT", description: "Max 5/hour.", variant: "destructive" }); return; }
+    setExecutingId(target.id);
+    try {
+      const { data, error } = await supabase.functions.invoke("execute-social-action", { body: { targetId: target.id } });
+      if (error) throw error;
+      if (data?.rateLimited) { toast({ title: "⚠️ RATE LIMIT", description: data.error, variant: "destructive" }); return; }
+      const actions = [data?.followed && "Followed", data?.liked && "Liked"].filter(Boolean).join(" & ");
+      toast({ title: actions || "PARTIAL" });
+      fetchSocialLogs(); fetchNextTargets(); fetchExecCount();
+    } catch (e) { toast({ title: "Execution failed", description: String(e), variant: "destructive" }); }
+    finally { setExecutingId(null); }
   };
 
-  const handleSendToManual = (text: string) => {
-    setManualTweet(text);
-    setActiveTab("manual");
-    toast({ title: "LOADED", description: "Draft loaded into Manual Post." });
+  const handleEditTargetHandle = async (id: string, newH: string) => {
+    const clean = newH.replace(/^@/, "").trim();
+    if (!clean) return;
+    try {
+      await supabase.functions.invoke("admin-hunter", { body: { action: "update_handle", id, x_handle: clean, admin_token: getAdminToken() } });
+      toast({ title: "UPDATED" });
+      setEditingTargetId(null); setEditingHandle("");
+      fetchNextTargets(); fetchTargets();
+    } catch (e) { toast({ title: "Update failed", description: String(e), variant: "destructive" }); }
+  };
+
+  const handleDeleteNextTarget = async (id: string) => {
+    try {
+      await supabase.functions.invoke("admin-hunter", { body: { action: "delete", id, admin_token: getAdminToken() } });
+      toast({ title: "REMOVED" });
+      fetchNextTargets(); fetchTargets();
+    } catch (e) { toast({ title: "Delete failed", description: String(e), variant: "destructive" }); }
   };
 
   const getCooldownStatus = (lastRoastedAt: string | null) => {
@@ -549,41 +493,23 @@ const HustleAdmin = () => {
     const hours48 = 48 * 60 * 60 * 1000;
     if (diff < hours48) {
       const remaining = hours48 - diff;
-      const h = Math.floor(remaining / 3600000);
-      const m = Math.floor((remaining % 3600000) / 60000);
-      return { onCooldown: true, text: `${h}h ${m}m` };
+      return { onCooldown: true, text: `${Math.floor(remaining / 3600000)}h ${Math.floor((remaining % 3600000) / 60000)}m` };
     }
     return { onCooldown: false, text: "READY" };
   };
 
+  // ─── LOGIN SCREEN ───
   if (!authenticated) {
     return (
       <div className="min-h-screen bg-background grid-bg flex items-center justify-center">
-        <motion.div
-          className="glass rounded-lg p-8 max-w-md w-full mx-4 space-y-6"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-        >
+        <motion.div className="glass rounded-lg p-8 max-w-md w-full mx-4 space-y-6" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
           <div className="flex items-center gap-3 justify-center">
             <Shield className="w-6 h-6 text-neon-magenta" />
-            <h1 className="font-display text-xl font-bold tracking-[0.2em] text-foreground">
-              HUSTLE ADMIN
-            </h1>
+            <h1 className="font-display text-xl font-bold tracking-[0.2em] text-foreground">HUSTLE ADMIN</h1>
           </div>
-          <p className="text-muted-foreground text-xs text-center font-mono">
-            CLASSIFIED ACCESS — ENTER PASSPHRASE
-          </p>
-          <Input
-            type="password"
-            placeholder="Enter admin passphrase..."
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            className="bg-muted border-border text-foreground"
-          />
-          <Button onClick={handleLogin} className="w-full" variant="default">
-            <Shield className="w-4 h-4 mr-2" /> AUTHENTICATE
-          </Button>
+          <p className="text-muted-foreground text-xs text-center font-mono">CLASSIFIED ACCESS — ENTER PASSPHRASE</p>
+          <Input type="password" placeholder="Enter admin passphrase..." value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleLogin()} className="bg-muted border-border text-foreground" />
+          <Button onClick={handleLogin} className="w-full" variant="default"><Shield className="w-4 h-4 mr-2" /> AUTHENTICATE</Button>
         </motion.div>
       </div>
     );
@@ -592,72 +518,201 @@ const HustleAdmin = () => {
   const pendingTweets = tweets.filter((t) => t.status === "pending");
   const postedTweets = tweets.filter((t) => t.status === "posted");
   const errorTweets = tweets.filter((t) => t.status === "error");
+  const GOAL_SOL = 10;
+  const solProgress = Math.min(100, (totalSol / GOAL_SOL) * 100);
+
+  // ─── Helper: render tweet card with visual media ───
+  const renderTweetCard = (tweet: TweetQueueItem, variant: "pending" | "posted" | "error") => {
+    const asset = mediaAssets[tweet.id];
+    const hasImage = !!tweet.image_url;
+    const hasAudio = !!(tweet.audio_url || asset?.audio_url);
+    const hasVideo = !!asset?.video_url;
+    const audioUrl = tweet.audio_url || asset?.audio_url || "";
+    const videoUrl = asset?.video_url || "";
+    const isRendering = asset?.status === "pending" || asset?.status === "rendering";
+
+    return (
+      <Card key={tweet.id} className={`bg-card ${variant === "error" ? "border-destructive/40" : variant === "posted" ? "border-border opacity-70" : "border-border"}`}>
+        <CardContent className="p-0">
+          <div className="flex gap-0">
+            {/* Thumbnail */}
+            {hasImage && (
+              <button
+                onClick={() => setPreviewImage(tweet.image_url!)}
+                className="relative shrink-0 w-24 h-24 sm:w-28 sm:h-28 overflow-hidden rounded-l-lg group cursor-pointer"
+              >
+                <img src={tweet.image_url!} alt="Post visual" className="w-full h-full object-cover transition-transform group-hover:scale-110" />
+                <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Eye className="w-5 h-5 text-white" />
+                </div>
+              </button>
+            )}
+
+            {/* Content area */}
+            <div className="flex-1 p-3 space-y-2 min-w-0">
+              {editingId === tweet.id ? (
+                <div className="space-y-2">
+                  <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="bg-muted border-border text-foreground" rows={3} />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={handleSaveEdit}>Save</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-foreground text-sm font-mono leading-snug line-clamp-3">{tweet.content}</p>
+
+                  {/* Media badges row */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {hasImage && <MediaBadge type="img" ready />}
+                    {hasAudio ? <MediaBadge type="voice" ready /> : isRendering ? <MediaBadge type="voice" ready={false} /> : null}
+                    {hasVideo ? <MediaBadge type="video" ready /> : isRendering ? <MediaBadge type="video" ready={false} /> : null}
+                    {isRendering && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-mono text-yellow-400">
+                        <Loader2 className="w-3 h-3 animate-spin" /> RENDERING...
+                      </span>
+                    )}
+                    {asset?.status === "error" && (
+                      <span className="text-[9px] font-mono text-destructive">MEDIA ERROR</span>
+                    )}
+                  </div>
+
+                  {/* Meta + Actions */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground flex-wrap">
+                      <span className={tweet.type === "hunter" ? "text-destructive uppercase" : "uppercase"}>{tweet.type}</span>
+                      <span>•</span>
+                      <span>{new Date(tweet.created_at).toLocaleString()}</span>
+                      <span className="text-muted-foreground">({tweet.content.length}/280)</span>
+                      {(() => {
+                        const { label, isPrime } = getScheduleLabel(tweet.scheduled_at, tweet.type);
+                        return (
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
+                            label.includes("BREAKING") ? "bg-destructive/20 text-destructive border border-destructive/30" :
+                            isPrime ? "bg-neon-green/10 text-neon-green border border-neon-green/30" :
+                            "bg-muted text-muted-foreground border border-border"
+                          }`}>{label}</span>
+                        );
+                      })()}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {/* Audio play */}
+                      {hasAudio && (
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => {
+                          if (playingAudioId === tweet.id) handleStopAudio();
+                          else handlePlayPreview(audioUrl, tweet.id);
+                        }}>
+                          {playingAudioId === tweet.id ? <Pause className="w-3 h-3 text-neon-magenta" /> : <Play className="w-3 h-3 text-neon-magenta" />}
+                        </Button>
+                      )}
+                      {/* Video play */}
+                      {hasVideo && (
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setPreviewVideo(videoUrl)}>
+                          <Film className="w-3 h-3 text-neon-cyan" />
+                        </Button>
+                      )}
+                      {/* Download MP4 */}
+                      {hasVideo && (
+                        <a href={videoUrl} download target="_blank" rel="noreferrer">
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Download MP4">
+                            <Download className="w-3 h-3 text-neon-green" />
+                          </Button>
+                        </a>
+                      )}
+                      {/* Regenerate media */}
+                      {(hasImage && variant === "pending") && (
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={regeneratingId === tweet.id} onClick={() => handleRegenerateMedia(tweet.id)} title="Regenerate media">
+                          {regeneratingId === tweet.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                        </Button>
+                      )}
+                      {variant !== "posted" && (
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handlePostNow(tweet.id)}>
+                          <Send className="w-3 h-3" />
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleEdit(tweet)}>
+                        <Edit2 className="w-3 h-3" />
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleDelete(tweet.id)}>
+                        <Trash2 className="w-3 h-3 text-destructive" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Error message */}
+                  {tweet.error_message && (
+                    <p className="text-[10px] font-mono text-destructive bg-destructive/10 rounded px-2 py-1">{tweet.error_message}</p>
+                  )}
+                  {variant === "posted" && (
+                    <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3 text-neon-green" />
+                      Posted {tweet.posted_at ? new Date(tweet.posted_at).toLocaleString() : "—"}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-background grid-bg">
-      <motion.header
-        className="border-b border-border px-6 py-4 flex items-center justify-between"
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-2xl max-h-[80vh]">
+            <img src={previewImage} alt="Preview" className="max-w-full max-h-[80vh] object-contain rounded-lg" />
+            <button onClick={() => setPreviewImage(null)} className="absolute top-2 right-2 bg-black/60 rounded-full p-1"><X className="w-5 h-5 text-white" /></button>
+          </div>
+        </div>
+      )}
+      {/* Video Preview Modal */}
+      {previewVideo && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPreviewVideo(null)}>
+          <div className="relative max-w-2xl">
+            <video src={previewVideo} controls autoPlay className="max-w-full max-h-[80vh] rounded-lg" />
+            <button onClick={() => setPreviewVideo(null)} className="absolute top-2 right-2 bg-black/60 rounded-full p-1"><X className="w-5 h-5 text-white" /></button>
+          </div>
+        </div>
+      )}
+
+      <motion.header className="border-b border-border px-6 py-4 flex items-center justify-between" initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
         <div className="flex items-center gap-3">
           <Shield className="w-5 h-5 text-neon-magenta" />
-          <h1 className="font-display text-lg font-bold tracking-[0.3em] text-foreground">
-            X ENGINE — ADMIN
-          </h1>
+          <h1 className="font-display text-lg font-bold tracking-[0.3em] text-foreground">X ENGINE — ADMIN</h1>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
+          {/* SOL Progress */}
           <div className="flex items-center gap-2">
-            {apiStatus === "connected" ? (
-              <CheckCircle className="w-4 h-4 text-neon-green" />
-            ) : apiStatus === "error" ? (
-              <AlertCircle className="w-4 h-4 text-destructive" />
-            ) : (
-              <Clock className="w-4 h-4 text-muted-foreground" />
-            )}
-            <span className="text-[10px] font-mono text-muted-foreground">
-              X API: {apiStatus.toUpperCase()}
-            </span>
+            <div className="w-24 h-2 rounded-full bg-muted border border-border overflow-hidden">
+              <div className="h-full rounded-full" style={{ width: `${solProgress}%`, background: "linear-gradient(90deg, hsl(180 100% 50%), hsl(300 100% 50%))" }} />
+            </div>
+            <span className="text-[10px] font-mono text-muted-foreground">{totalSol.toFixed(3)}/{GOAL_SOL} SOL</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {apiStatus === "connected" ? <CheckCircle className="w-4 h-4 text-neon-green" /> : apiStatus === "error" ? <AlertCircle className="w-4 h-4 text-destructive" /> : <Clock className="w-4 h-4 text-muted-foreground" />}
+            <span className="text-[10px] font-mono text-muted-foreground">X: {apiStatus.toUpperCase()}</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Film className={`w-3.5 h-3.5 ${
-              mediaStatus === "rendering" ? "text-yellow-400 animate-pulse" :
-              mediaStatus === "error" ? "text-destructive" : "text-neon-cyan"
-            }`} />
-            <span className={`text-[10px] font-mono ${
-              mediaStatus === "rendering" ? "text-yellow-400" :
-              mediaStatus === "error" ? "text-destructive" : "text-muted-foreground"
-            }`}>
-              MEDIA: {mediaStatus === "rendering" ? "RENDERING..." : mediaStatus.toUpperCase()}
-            </span>
+            <Film className={`w-3.5 h-3.5 ${mediaStatus === "rendering" ? "text-yellow-400 animate-pulse" : mediaStatus === "error" ? "text-destructive" : "text-neon-cyan"}`} />
+            <span className={`text-[10px] font-mono ${mediaStatus === "rendering" ? "text-yellow-400" : mediaStatus === "error" ? "text-destructive" : "text-muted-foreground"}`}>MEDIA: {mediaStatus === "rendering" ? "RENDERING..." : mediaStatus.toUpperCase()}</span>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => (window.location.href = "/")}>
-            ← Dashboard
-          </Button>
+          <Button variant="ghost" size="sm" onClick={() => (window.location.href = "/")}>← Dashboard</Button>
         </div>
       </motion.header>
 
       <main className="p-6 max-w-6xl mx-auto space-y-6">
         {/* Autopilot Banner */}
-        <motion.div
-          className={`rounded-lg p-4 border flex items-center justify-between ${
-            autopilot
-              ? "bg-neon-green/5 border-neon-green/30"
-              : "bg-muted border-border"
-          }`}
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div className={`rounded-lg p-4 border flex items-center justify-between ${autopilot ? "bg-neon-green/5 border-neon-green/30" : "bg-muted border-border"}`} initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex items-center gap-3">
             <Power className={`w-5 h-5 ${autopilot ? "text-neon-green" : "text-muted-foreground"}`} />
             <div>
-              <h3 className="font-display text-sm tracking-widest text-foreground">
-                AUTOPILOT MODE
-              </h3>
+              <h3 className="font-display text-sm tracking-widest text-foreground">AUTOPILOT MODE</h3>
               <p className="text-[10px] font-mono text-muted-foreground">
-                {autopilot
-                  ? "Prime time targeting: US Morning (18:00 GMT+4) • US Lunch (21:00) • US Afternoon (00:00) • Off-peak filler 4-8h • Breaking news bypass active"
-                  : "Manual mode — generate and post tweets yourself"}
+                {autopilot ? "Prime time targeting active • 8 posts/day • Async media pipeline" : "Manual mode — generate and post yourself"}
               </p>
             </div>
           </div>
@@ -668,10 +723,7 @@ const HustleAdmin = () => {
                 <p className="font-mono text-sm text-neon-cyan font-bold">{countdown}</p>
               </div>
             )}
-            <Switch
-              checked={autopilot}
-              onCheckedChange={setAutopilot}
-            />
+            <Switch checked={autopilot} onCheckedChange={setAutopilot} />
           </div>
         </motion.div>
 
@@ -679,12 +731,8 @@ const HustleAdmin = () => {
           <TabsList className="bg-muted border border-border">
             <TabsTrigger value="queue">Tweet Queue</TabsTrigger>
             <TabsTrigger value="manual">Manual Post</TabsTrigger>
-            <TabsTrigger value="hunter">
-              <Crosshair className="w-3 h-3 mr-1" /> Hunter
-            </TabsTrigger>
-            <TabsTrigger value="social">
-              <Activity className="w-3 h-3 mr-1" /> Social Activity
-            </TabsTrigger>
+            <TabsTrigger value="hunter"><Crosshair className="w-3 h-3 mr-1" /> Hunter</TabsTrigger>
+            <TabsTrigger value="social"><Activity className="w-3 h-3 mr-1" /> Social Activity</TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="status">System</TabsTrigger>
           </TabsList>
@@ -692,188 +740,36 @@ const HustleAdmin = () => {
           {/* TWEET QUEUE TAB */}
           <TabsContent value="queue" className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-sm tracking-widest text-muted-foreground">
-                PENDING ({pendingTweets.length})
-              </h2>
-                <div className="flex gap-2">
-                  <Button onClick={handleForceSync} disabled={syncing} size="sm" variant="destructive">
-                    <Zap className="w-4 h-4 mr-1" />
-                    {syncing ? "Syncing..." : "FORCE SYNC"}
-                  </Button>
-                  {!autopilot && (
-                    <Button onClick={handleGenerateNow} disabled={generating} size="sm">
-                      <Zap className="w-4 h-4 mr-1" />
-                      {generating ? "Generating..." : "Generate Now"}
-                    </Button>
-                  )}
-                  <Button onClick={handleBatchPreGenerate} disabled={batchGenerating} size="sm" variant="outline" className="border-neon-cyan/50 text-neon-cyan">
-                    <Activity className="w-4 h-4 mr-1" />
-                    {batchGenerating ? "Pre-Generating..." : "PRE-GEN 24H QUEUE"}
-                  </Button>
-                  <Button onClick={handleInjectMedia} disabled={injectingMedia} size="sm" variant="outline" className="border-neon-magenta/50 text-neon-magenta">
-                    <Film className="w-4 h-4 mr-1" />
-                    {injectingMedia ? "Rendering..." : "INJECT MEDIA"}
-                  </Button>
-                  <Button onClick={fetchTweets} variant="outline" size="sm">
-                    <RefreshCw className="w-4 h-4" />
-                  </Button>
-                </div>
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground">PENDING ({pendingTweets.length})</h2>
+              <div className="flex gap-2">
+                <Button onClick={handleForceSync} disabled={syncing} size="sm" variant="destructive"><Zap className="w-4 h-4 mr-1" />{syncing ? "Syncing..." : "FORCE SYNC"}</Button>
+                {!autopilot && <Button onClick={handleGenerateNow} disabled={generating} size="sm"><Zap className="w-4 h-4 mr-1" />{generating ? "Generating..." : "Generate Now"}</Button>}
+                <Button onClick={handleBatchPreGenerate} disabled={batchGenerating} size="sm" variant="outline" className="border-neon-cyan/50 text-neon-cyan"><Activity className="w-4 h-4 mr-1" />{batchGenerating ? "Pre-Generating..." : "PRE-GEN 24H"}</Button>
+                <Button onClick={handleInjectMedia} disabled={injectingMedia} size="sm" variant="outline" className="border-neon-magenta/50 text-neon-magenta"><Film className="w-4 h-4 mr-1" />{injectingMedia ? "Rendering..." : "INJECT MEDIA"}</Button>
+                <Button onClick={() => { fetchTweets(); fetchMediaAssets(); }} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
+              </div>
             </div>
 
-            {autopilot && pendingTweets.length === 0 && (
+            {pendingTweets.length === 0 && (
               <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
                 <Power className="w-8 h-8 mx-auto mb-3 text-neon-green opacity-50" />
-                Autopilot is active. Tweets are generated and posted automatically every 4 hours.
-                <br />
-                <span className="text-neon-cyan font-mono text-xs">Next post in: {countdown}</span>
+                {autopilot ? <>Autopilot active. Next post in: <span className="text-neon-cyan font-mono">{countdown}</span></> : 'No pending tweets. Hit "Generate Now".'}
               </div>
             )}
 
-            {!autopilot && pendingTweets.length === 0 && (
-              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
-                No pending tweets. Hit "Generate Now" to create one.
-              </div>
-            )}
-
-            {pendingTweets.map((tweet) => (
-              <Card key={tweet.id} className="bg-card border-border">
-                <CardContent className="p-4 space-y-3">
-                  {editingId === tweet.id ? (
-                    <div className="space-y-2">
-                      <Textarea
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        className="bg-muted border-border text-foreground"
-                        rows={3}
-                      />
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={handleSaveEdit}>Save</Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-start gap-2">
-                        {tweet.type === "hunter" && (
-                          <Crosshair className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
-                        )}
-                        <p className="text-foreground text-sm font-mono">{tweet.content}</p>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                          <span className={`uppercase ${tweet.type === "hunter" ? "text-destructive" : ""}`}>{tweet.type}</span>
-                          <span>•</span>
-                          <span>{new Date(tweet.created_at).toLocaleString()}</span>
-                          <span className="text-xs text-muted-foreground">
-                            ({tweet.content.length}/280)
-                          </span>
-                          <span>•</span>
-                          {(() => {
-                            const { label, isPrime } = getScheduleLabel(tweet.scheduled_at, tweet.type);
-                            return (
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
-                                label.includes("BREAKING")
-                                  ? "bg-destructive/20 text-destructive border border-destructive/30"
-                                  : isPrime
-                                  ? "bg-neon-green/10 text-neon-green border border-neon-green/30"
-                                  : "bg-muted text-muted-foreground border border-border"
-                              }`}>
-                                {label}
-                              </span>
-                            );
-                          })()}
-                          {tweet.image_url && (
-                            <button
-                              onClick={() => setPreviewImage(tweet.image_url!)}
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30 text-[9px] font-mono font-bold hover:bg-neon-cyan/20 transition-colors cursor-pointer"
-                              title="Preview image"
-                            >
-                              <Camera className="w-3 h-3" /> IMG
-                            </button>
-                          )}
-                          {tweet.audio_url && (
-                            <button
-                              onClick={() => handlePlayPreview(tweet.audio_url!)}
-                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/30 text-[9px] font-mono font-bold hover:bg-neon-magenta/20 transition-colors cursor-pointer"
-                              title="Preview audio"
-                            >
-                              <Mic className="w-3 h-3" /> TTS
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex gap-1">
-                          {!autopilot && (
-                            <Button size="sm" variant="ghost" onClick={() => handlePostNow(tweet.id)}>
-                              <Send className="w-3 h-3" />
-                            </Button>
-                          )}
-                          <Button size="sm" variant="ghost" onClick={() => handleEdit(tweet)}>
-                            <Edit2 className="w-3 h-3" />
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleDelete(tweet.id)}>
-                            <Trash2 className="w-3 h-3 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
+            {pendingTweets.map((tweet) => renderTweetCard(tweet, "pending"))}
 
             {errorTweets.length > 0 && (
               <>
-                <h2 className="font-display text-sm tracking-widest text-destructive pt-4">
-                  ERRORS ({errorTweets.length})
-                </h2>
-                {errorTweets.map((tweet) => (
-                  <Card key={tweet.id} className="bg-card border-destructive/40">
-                    <CardContent className="p-4 space-y-2">
-                      <div className="flex items-start gap-2">
-                        <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
-                        <p className="text-foreground text-sm font-mono">{tweet.content}</p>
-                      </div>
-                      {tweet.error_message && (
-                        <p className="text-[10px] font-mono text-destructive bg-destructive/10 rounded px-2 py-1">
-                          {tweet.error_message}
-                        </p>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground uppercase">{tweet.type}</span>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => handlePostNow(tweet.id)}>
-                            <Send className="w-3 h-3" /> Retry
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleDelete(tweet.id)}>
-                            <Trash2 className="w-3 h-3 text-destructive" />
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                <h2 className="font-display text-sm tracking-widest text-destructive pt-4">ERRORS ({errorTweets.length})</h2>
+                {errorTweets.map((tweet) => renderTweetCard(tweet, "error"))}
               </>
             )}
 
             {postedTweets.length > 0 && (
               <>
-                <h2 className="font-display text-sm tracking-widest text-muted-foreground pt-4">
-                  POSTED ({postedTweets.length})
-                </h2>
-                {postedTweets.slice(0, 10).map((tweet) => (
-                  <Card key={tweet.id} className="bg-card border-border opacity-60">
-                    <CardContent className="p-4">
-                      <div className="flex items-start gap-2">
-                        {tweet.type === "hunter" && <Crosshair className="w-3 h-3 text-destructive mt-0.5 shrink-0" />}
-                        <p className="text-foreground text-sm font-mono">{tweet.content}</p>
-                      </div>
-                      <div className="text-[10px] text-muted-foreground mt-2 flex items-center gap-2">
-                        <CheckCircle className="w-3 h-3 text-neon-green" />
-                        <span>Posted {tweet.posted_at ? new Date(tweet.posted_at).toLocaleString() : "—"}</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                <h2 className="font-display text-sm tracking-widest text-muted-foreground pt-4">POSTED ({postedTweets.length})</h2>
+                {postedTweets.slice(0, 10).map((tweet) => renderTweetCard(tweet, "posted"))}
               </>
             )}
           </TabsContent>
@@ -881,72 +777,39 @@ const HustleAdmin = () => {
           {/* MANUAL POST TAB */}
           <TabsContent value="manual" className="space-y-4">
             <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="text-sm font-display tracking-widest">COMPOSE TWEET</CardTitle>
-              </CardHeader>
+              <CardHeader><CardTitle className="text-sm font-display tracking-widest">COMPOSE TWEET</CardTitle></CardHeader>
               <CardContent className="space-y-4">
-                <Textarea
-                  placeholder="Write a tweet as HustleCore..."
-                  value={manualTweet}
-                  onChange={(e) => setManualTweet(e.target.value)}
-                  className="bg-muted border-border text-foreground min-h-[120px]"
-                  maxLength={280}
-                />
+                <Textarea placeholder="Write a tweet as HustleCore..." value={manualTweet} onChange={(e) => setManualTweet(e.target.value)} className="bg-muted border-border text-foreground min-h-[120px]" maxLength={280} />
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">{manualTweet.length}/280</span>
-                  <Button onClick={handleManualPost} disabled={posting || !manualTweet.trim()}>
-                    <Twitter className="w-4 h-4 mr-2" />
-                    {posting ? "Queuing..." : "Add to Queue"}
-                  </Button>
+                  <Button onClick={handleManualPost} disabled={posting || !manualTweet.trim()}><Twitter className="w-4 h-4 mr-2" />{posting ? "Queuing..." : "Add to Queue"}</Button>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
 
-          {/* HUNTER TAB - TARGET ACQUISITION */}
+          {/* HUNTER TAB */}
           <TabsContent value="hunter" className="space-y-4">
             <Card className="bg-card border-destructive/30">
               <CardHeader>
-                <CardTitle className="text-sm font-display tracking-widest flex items-center gap-2 text-destructive">
-                  <Crosshair className="w-4 h-4" />
-                  TARGET ACQUISITION
-                </CardTitle>
+                <CardTitle className="text-sm font-display tracking-widest flex items-center gap-2 text-destructive"><Crosshair className="w-4 h-4" />TARGET ACQUISITION</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex gap-2">
-                  <Input
-                    placeholder="@target_agent_handle"
-                    value={newHandle}
-                    onChange={(e) => setNewHandle(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleAddTarget()}
-                    className="bg-muted border-border text-foreground font-mono"
-                  />
-                  <Button onClick={handleAddTarget} disabled={addingTarget || !newHandle.trim()} size="sm">
-                    <Plus className="w-4 h-4 mr-1" />
-                    {addingTarget ? "Adding..." : "Add Target"}
-                  </Button>
+                  <Input placeholder="@target_agent_handle" value={newHandle} onChange={(e) => setNewHandle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleAddTarget()} className="bg-muted border-border text-foreground font-mono" />
+                  <Button onClick={handleAddTarget} disabled={addingTarget || !newHandle.trim()} size="sm"><Plus className="w-4 h-4 mr-1" />{addingTarget ? "Adding..." : "Add Target"}</Button>
                 </div>
-
-                <p className="text-[10px] font-mono text-muted-foreground">
-                  Active targets will be randomly roasted during auto-posts (50% chance per cycle). 48h cooldown between roasts. Manual targets are always processed before Discovery targets.
-                </p>
+                <p className="text-[10px] font-mono text-muted-foreground">48h cooldown between roasts. Manual targets processed first.</p>
               </CardContent>
             </Card>
 
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-sm tracking-widest text-muted-foreground">
-                ACTIVE TARGETS ({targets.filter(t => t.is_active).length})
-              </h2>
-              <Button onClick={fetchTargets} variant="outline" size="sm">
-                <RefreshCw className="w-4 h-4" />
-              </Button>
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground">ACTIVE TARGETS ({targets.filter(t => t.is_active).length})</h2>
+              <Button onClick={fetchTargets} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
             </div>
 
             {targets.length === 0 && (
-              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
-                <Crosshair className="w-8 h-8 mx-auto mb-3 text-destructive opacity-50" />
-                No targets acquired. Add AI agent handles above to start hunting.
-              </div>
+              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm"><Crosshair className="w-8 h-8 mx-auto mb-3 text-destructive opacity-50" />No targets acquired.</div>
             )}
 
             {targets.map((target) => {
@@ -962,96 +825,46 @@ const HustleAdmin = () => {
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="text-foreground font-mono text-sm font-bold">@{target.x_handle}</span>
-                            {target.source === "discovery" && (
-                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20">
-                                DISCOVERY
-                              </span>
-                            )}
+                            {target.source === "discovery" && <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20">DISCOVERY</span>}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${
-                              cooldown.onCooldown
-                                ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
-                                : "bg-neon-green/10 text-neon-green border border-neon-green/20"
-                            }`}>
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded ${cooldown.onCooldown ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20" : "bg-neon-green/10 text-neon-green border border-neon-green/20"}`}>
                               {cooldown.onCooldown ? `COOLDOWN: ${cooldown.text}` : cooldown.text}
                             </span>
-                            {target.last_roasted_at && (
-                              <span className="text-[10px] text-muted-foreground font-mono">
-                                Last roasted: {new Date(target.last_roasted_at).toLocaleString()}
-                              </span>
-                            )}
-                            {target.followed_at && (
-                              <span className="text-[10px] text-neon-cyan font-mono">
-                                ✓ Following
-                              </span>
-                            )}
+                            {target.followed_at && <span className="text-[10px] text-neon-cyan font-mono">✓ Following</span>}
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex items-center gap-1.5">
-                          <Switch
-                            checked={target.auto_follow}
-                            onCheckedChange={() => handleToggleFollow(target)}
-                            className="scale-75"
-                          />
+                          <Switch checked={target.auto_follow} onCheckedChange={() => handleToggleFollow(target)} className="scale-75" />
                           <span className="text-[9px] font-mono text-muted-foreground">Follow</span>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={draftingId === target.id || !target.is_active}
-                          onClick={() => handleGenerateDrafts(target)}
-                        >
-                          {draftingId === target.id ? (
-                            <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Researching...</>
-                          ) : (
-                            <><Lightbulb className="w-3 h-3 mr-1" /> Generate Draft</>
-                          )}
+                        <Button size="sm" variant="outline" disabled={draftingId === target.id} onClick={() => handleGenerateDrafts(target)}>
+                          {draftingId === target.id ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Researching...</> : <><Lightbulb className="w-3 h-3 mr-1" /> Draft</>}
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={cooldown.onCooldown || roastingId === target.id || !target.is_active}
-                          onClick={() => handleRoastNow(target.id)}
-                        >
-                          <Zap className="w-3 h-3 mr-1" />
-                          {roastingId === target.id ? "Roasting..." : "Roast Now"}
+                        <Button size="sm" variant="destructive" disabled={cooldown.onCooldown || roastingId === target.id} onClick={() => handleRoastNow(target.id)}>
+                          <Zap className="w-3 h-3 mr-1" />{roastingId === target.id ? "Roasting..." : "Roast Now"}
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => handleDeleteTarget(target.id)}>
-                          <Trash2 className="w-3 h-3 text-destructive" />
-                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteTarget(target.id)}><Trash2 className="w-3 h-3 text-destructive" /></Button>
                       </div>
                     </div>
-
-                    {/* Drafts section */}
                     {targetDrafts.length > 0 && (
                       <div className="space-y-2">
-                        <button
-                          onClick={() => setExpandedDrafts((prev) => ({ ...prev, [target.id]: !isExpanded }))}
-                          className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-                        >
+                        <button onClick={() => setExpandedDrafts((prev) => ({ ...prev, [target.id]: !isExpanded }))} className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors">
                           {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                          {targetDrafts.length} DRAFTS AVAILABLE
+                          {targetDrafts.length} DRAFTS
                         </button>
-
                         {isExpanded && (
                           <div className="space-y-2 pl-4 border-l-2 border-destructive/20">
                             {targetDrafts.map((draft, idx) => (
                               <div key={idx} className="glass rounded-lg p-3 space-y-2">
                                 <p className="text-foreground text-xs font-mono leading-relaxed">{draft.content}</p>
                                 <div className="flex items-center justify-between">
-                                  <span className="text-[9px] font-mono text-muted-foreground">
-                                    {draft.model} • {draft.angle.slice(0, 40)}
-                                  </span>
+                                  <span className="text-[9px] font-mono text-muted-foreground">{draft.model} • {draft.angle.slice(0, 40)}</span>
                                   <div className="flex gap-1">
-                                    <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => handleCopyDraft(draft.content)}>
-                                      <Copy className="w-3 h-3 mr-1" /> Copy
-                                    </Button>
-                                    <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-neon-cyan" onClick={() => handleSendToManual(draft.content)}>
-                                      <ArrowRight className="w-3 h-3 mr-1" /> Manual Post
-                                    </Button>
+                                    <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => { navigator.clipboard.writeText(draft.content); toast({ title: "COPIED" }); }}><Copy className="w-3 h-3 mr-1" /> Copy</Button>
+                                    <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2 text-neon-cyan" onClick={() => { setManualTweet(draft.content); setActiveTab("manual"); }}><ArrowRight className="w-3 h-3 mr-1" /> Manual Post</Button>
                                   </div>
                                 </div>
                               </div>
@@ -1069,43 +882,22 @@ const HustleAdmin = () => {
           {/* SOCIAL ACTIVITY TAB */}
           <TabsContent value="social" className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-sm tracking-widest text-muted-foreground">
-                RECENT ACTIVITY ({socialLogs.length})
-              </h2>
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground">RECENT ACTIVITY ({socialLogs.length})</h2>
               <div className="flex gap-2">
-                <Button
-                  onClick={async () => {
-                    setDiscovering(true);
-                    setDiscoveryLog("Scanning social grid for high-value targets...");
-                    try {
-                      const { data, error } = await supabase.functions.invoke("auto-follow", {
-                        body: { discoveryOnly: true },
-                      });
-                      if (error) throw error;
-                      setDiscoveryLog(`Discovery complete — found ${data?.discovered || 0} new targets.`);
-                      fetchNextTargets();
-                      fetchTargets();
-                      setTimeout(() => setDiscoveryLog(null), 8000);
-                    } catch (e) {
-                      setDiscoveryLog(`Discovery failed: ${e}`);
-                      setTimeout(() => setDiscoveryLog(null), 5000);
-                    } finally {
-                      setDiscovering(false);
-                    }
-                  }}
-                  disabled={discovering}
-                  size="sm"
-                  className="bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20"
-                >
-                  {discovering ? (
-                    <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Scanning...</>
-                  ) : (
-                    <>⚡️ TRIGGER DISCOVERY SCAN</>
-                  )}
+                <Button onClick={async () => {
+                  setDiscovering(true); setDiscoveryLog("Scanning...");
+                  try {
+                    const { data, error } = await supabase.functions.invoke("auto-follow", { body: { discoveryOnly: true } });
+                    if (error) throw error;
+                    setDiscoveryLog(`Found ${data?.discovered || 0} new targets.`);
+                    fetchNextTargets(); fetchTargets();
+                    setTimeout(() => setDiscoveryLog(null), 8000);
+                  } catch (e) { setDiscoveryLog(`Failed: ${e}`); setTimeout(() => setDiscoveryLog(null), 5000); }
+                  finally { setDiscovering(false); }
+                }} disabled={discovering} size="sm" className="bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20">
+                  {discovering ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Scanning...</> : <>⚡️ DISCOVERY SCAN</>}
                 </Button>
-                <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); }} variant="outline" size="sm">
-                  <RefreshCw className="w-4 h-4" />
-                </Button>
+                <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); }} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
               </div>
             </div>
 
@@ -1117,10 +909,7 @@ const HustleAdmin = () => {
             )}
 
             {socialLogs.length === 0 ? (
-              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
-                <Activity className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                No social activity logged yet. Actions will appear here once the bot starts following targets.
-              </div>
+              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm"><Activity className="w-8 h-8 mx-auto mb-3 opacity-50" />No activity logged yet.</div>
             ) : (
               <div className="space-y-2">
                 {socialLogs.map((log) => (
@@ -1128,21 +917,10 @@ const HustleAdmin = () => {
                     <CardContent className="p-3 flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <div className={`w-2 h-2 rounded-full ${log.action_type === "follow" ? "bg-neon-green" : "bg-neon-cyan"}`} />
-                        <span className="text-foreground text-sm font-mono">
-                          {log.action_type === "follow" ? "Followed" : "Liked"}{" "}
-                          <span className="text-neon-cyan font-bold">@{log.target_handle}</span>
-                        </span>
-                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                          log.source === "discovery"
-                            ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20"
-                            : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"
-                        }`}>
-                          {log.source.toUpperCase()}
-                        </span>
+                        <span className="text-foreground text-sm font-mono">{log.action_type === "follow" ? "Followed" : "Liked"} <span className="text-neon-cyan font-bold">@{log.target_handle}</span></span>
+                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${log.source === "discovery" ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20" : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"}`}>{log.source.toUpperCase()}</span>
                       </div>
-                      <span className="text-[10px] text-muted-foreground font-mono">
-                        {new Date(log.created_at).toLocaleString()}
-                      </span>
+                      <span className="text-[10px] text-muted-foreground font-mono">{new Date(log.created_at).toLocaleString()}</span>
                     </CardContent>
                   </Card>
                 ))}
@@ -1151,98 +929,43 @@ const HustleAdmin = () => {
 
             {/* NEXT SESSIONS */}
             <div className="pt-2">
-              <h2 className="font-display text-sm tracking-widest text-muted-foreground mb-3 flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                NEXT SESSIONS ({nextTargets.length})
-              </h2>
-              <p className="text-[10px] font-mono text-muted-foreground mb-3">
-                Accounts the bot will interact with in the next 24 hours. Manual targets are processed first.
-              </p>
-
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground mb-3 flex items-center gap-2"><Eye className="w-4 h-4" />NEXT SESSIONS ({nextTargets.length})</h2>
               {recentExecCount >= 4 && (
-                <div className={`glass rounded-lg p-3 flex items-center gap-2 text-[10px] font-mono mb-3 ${
-                  recentExecCount >= 5
-                    ? "text-destructive border border-destructive/30"
-                    : "text-yellow-400 border border-yellow-500/30"
-                }`}>
-                  <AlertCircle className="w-3 h-3" />
-                  {recentExecCount >= 5
-                    ? "⚠️ Rate limit reached — 5/5 manual executions this hour. Wait before executing more."
-                    : `⚠️ Approaching rate limit — ${recentExecCount}/5 manual executions this hour.`}
+                <div className={`glass rounded-lg p-3 flex items-center gap-2 text-[10px] font-mono mb-3 ${recentExecCount >= 5 ? "text-destructive border border-destructive/30" : "text-yellow-400 border border-yellow-500/30"}`}>
+                  <AlertCircle className="w-3 h-3" />{recentExecCount >= 5 ? "⚠️ Rate limit reached (5/5)." : `⚠️ ${recentExecCount}/5 executions this hour.`}
                 </div>
               )}
-
               {nextTargets.length === 0 ? (
-                <div className="glass rounded-lg p-6 text-center text-muted-foreground text-sm">
-                  No upcoming sessions. All targets have been followed or Discovery Mode will find new ones.
-                </div>
+                <div className="glass rounded-lg p-6 text-center text-muted-foreground text-sm">No upcoming sessions.</div>
               ) : (
                 <div className="space-y-2">
                   {nextTargets.map((target, idx) => (
                     <Card key={target.id} className="bg-card border-border">
-                      <CardContent className="p-3 space-y-2">
+                      <CardContent className="p-3">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <span className="text-[10px] font-mono text-muted-foreground w-4">{idx + 1}.</span>
                             {editingTargetId === target.id ? (
                               <div className="flex items-center gap-1">
                                 <span className="text-foreground text-sm font-mono">@</span>
-                                <Input
-                                  value={editingHandle}
-                                  onChange={(e) => setEditingHandle(e.target.value)}
-                                  onKeyDown={(e) => e.key === "Enter" && handleEditTargetHandle(target.id, editingHandle)}
-                                  className="h-7 w-40 text-sm font-mono bg-muted border-border"
-                                  autoFocus
-                                />
-                                <Button size="sm" className="h-7 px-2" onClick={() => handleEditTargetHandle(target.id, editingHandle)}>
-                                  <CheckCircle className="w-3 h-3" />
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setEditingTargetId(null)}>
-                                  ✕
-                                </Button>
+                                <Input value={editingHandle} onChange={(e) => setEditingHandle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleEditTargetHandle(target.id, editingHandle)} className="bg-muted border-border text-foreground font-mono h-7 w-40 text-sm" />
+                                <Button size="sm" variant="ghost" className="h-7" onClick={() => handleEditTargetHandle(target.id, editingHandle)}>✓</Button>
+                                <Button size="sm" variant="ghost" className="h-7" onClick={() => setEditingTargetId(null)}>✗</Button>
                               </div>
                             ) : (
-                              <span className="text-foreground text-sm font-mono font-bold">@{target.x_handle}</span>
+                              <span className={`text-foreground text-sm font-mono font-bold ${target.source === "discovery" ? "text-neon-cyan" : "text-neon-magenta"}`}>@{target.x_handle}</span>
                             )}
-                            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${
-                              (target.source || "manual") === "discovery"
-                                ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20"
-                                : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"
-                            }`}>
-                              {(target.source || "manual").toUpperCase()}
-                            </span>
+                            <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${target.source === "discovery" ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20" : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"}`}>{target.source?.toUpperCase() || "MANUAL"}</span>
                           </div>
                           <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-muted-foreground font-mono mr-1">
-                              P:{target.priority ?? 0}
-                            </span>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0"
-                              onClick={() => { setEditingTargetId(target.id); setEditingHandle(target.x_handle); }}
-                            >
+                            <Button onClick={() => handleExecuteNow(target)} disabled={executingId === target.id || recentExecCount >= 5} size="sm" variant="outline" className="h-7 text-[10px] border-neon-green/30 text-neon-green hover:bg-neon-green/10">
+                              {executingId === target.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Zap className="w-3 h-3 mr-1" />} Execute
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => { setEditingTargetId(target.id); setEditingHandle(target.x_handle); }}>
                               <Edit2 className="w-3 h-3" />
                             </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 w-7 p-0"
-                              onClick={() => handleDeleteNextTarget(target.id)}
-                            >
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleDeleteNextTarget(target.id)}>
                               <Trash2 className="w-3 h-3 text-destructive" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              disabled={executingId === target.id || recentExecCount >= 5}
-                              onClick={() => handleExecuteNow(target)}
-                              className="h-7 text-[10px] px-2 bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20"
-                            >
-                              {executingId === target.id ? (
-                                <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Executing...</>
-                              ) : (
-                                <>⚡️ Execute Now</>
-                              )}
                             </Button>
                           </div>
                         </div>
@@ -1257,120 +980,49 @@ const HustleAdmin = () => {
           {/* MENTIONS TAB */}
           <TabsContent value="mentions" className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="font-display text-sm tracking-widest text-muted-foreground">
-                RECENT MENTIONS ({mentions.length})
-              </h2>
-              <Button onClick={fetchMentions} variant="outline" size="sm">
-                <RefreshCw className="w-4 h-4" />
-              </Button>
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground">RECENT MENTIONS ({mentions.length})</h2>
+              <Button onClick={fetchMentions} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
             </div>
-
-            {autopilot && (
-              <div className="glass rounded-lg p-3 flex items-center gap-2 text-[10px] font-mono text-neon-green">
-                <Power className="w-3 h-3" />
-                Auto-reply active — checking mentions every 15 minutes
-              </div>
-            )}
-
-            {mentions.length === 0 && (
-              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
-                No mentions tracked yet. {autopilot ? "Auto-reply will fetch and respond automatically." : "Connect X API keys to start monitoring."}
-              </div>
-            )}
-
             {mentions.map((m) => (
               <Card key={m.id} className="bg-card border-border">
                 <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="text-neon-cyan text-sm font-bold">@{m.author_handle}</span>
-                      <p className="text-foreground text-sm font-mono mt-1">{m.content}</p>
-                    </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded ${m.replied ? "bg-neon-green/20 text-neon-green" : "bg-muted text-muted-foreground"}`}>
-                      {m.replied ? "REPLIED" : "PENDING"}
-                    </span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-neon-cyan font-mono text-sm font-bold">@{m.author_handle}</span>
+                    {m.replied && <Badge variant="secondary" className="text-[9px]">REPLIED</Badge>}
                   </div>
-                  <span className="text-[10px] text-muted-foreground mt-2 block">
-                    {new Date(m.created_at).toLocaleString()}
-                  </span>
+                  <p className="text-foreground text-sm font-mono">{m.content}</p>
+                  <span className="text-[10px] text-muted-foreground mt-2 block">{new Date(m.created_at).toLocaleString()}</span>
                 </CardContent>
               </Card>
             ))}
           </TabsContent>
 
-          {/* SYSTEM STATUS TAB */}
+          {/* SYSTEM TAB */}
           <TabsContent value="status" className="space-y-4">
             <Card className="bg-card border-border">
-              <CardHeader>
-                <CardTitle className="text-sm font-display tracking-widest">SYSTEM STATUS</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="glass rounded-lg p-4">
-                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">X API CONNECTION</p>
-                    <div className="flex items-center gap-2">
-                      {apiStatus === "connected" ? (
-                        <CheckCircle className="w-5 h-5 text-neon-green" />
-                      ) : (
-                        <AlertCircle className="w-5 h-5 text-destructive" />
-                      )}
-                      <span className="text-foreground font-mono text-sm">{apiStatus.toUpperCase()}</span>
-                    </div>
-                  </div>
-                  <div className="glass rounded-lg p-4">
-                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">AUTOPILOT</p>
-                    <span className={`font-mono text-sm ${autopilot ? "text-neon-green" : "text-muted-foreground"}`}>
-                      {autopilot ? "ACTIVE" : "OFF"}
-                    </span>
-                  </div>
-                  <div className="glass rounded-lg p-4">
-                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">QUEUE SIZE</p>
-                    <span className="text-foreground font-mono text-2xl">{pendingTweets.length}</span>
-                  </div>
-                  <div className="glass rounded-lg p-4">
-                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">TOTAL POSTED</p>
-                    <span className="text-foreground font-mono text-2xl">{postedTweets.length}</span>
-                  </div>
-                  <div className="glass rounded-lg p-4">
-                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">HUNTER TARGETS</p>
-                    <span className="text-foreground font-mono text-2xl">{targets.filter(t => t.is_active).length}</span>
-                  </div>
-                  <div className="glass rounded-lg p-4">
-                    <p className="text-[10px] text-muted-foreground tracking-widest mb-1">NEXT AUTO-POST</p>
-                    <span className="font-mono text-sm text-neon-cyan">{autopilot ? countdown : "N/A"}</span>
-                  </div>
+              <CardHeader><CardTitle className="text-sm font-display tracking-widest">SYSTEM STATUS</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-3">
+                  {apiStatus === "connected" ? <CheckCircle className="w-5 h-5 text-neon-green" /> : <AlertCircle className="w-5 h-5 text-destructive" />}
+                  <span className="text-foreground font-mono">X API: {apiStatus.toUpperCase()}</span>
                 </div>
-                <Button onClick={checkApiStatus} variant="outline" className="w-full">
-                  <RefreshCw className="w-4 h-4 mr-2" /> Re-check X API
-                </Button>
+                <div className="flex items-center gap-3">
+                  <Film className={`w-5 h-5 ${mediaStatus === "error" ? "text-destructive" : "text-neon-cyan"}`} />
+                  <span className="text-foreground font-mono">Media Pipeline: {mediaStatus.toUpperCase()}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Activity className="w-5 h-5 text-neon-green" />
+                  <span className="text-foreground font-mono">SOL Progress: {totalSol.toFixed(3)} / {GOAL_SOL} SOL ({solProgress.toFixed(1)}%)</span>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <Button onClick={checkApiStatus} variant="outline" size="sm">Re-check API</Button>
+                  <Button onClick={handleForceSync} disabled={syncing} variant="outline" size="sm">{syncing ? "Syncing..." : "Force Sync"}</Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
       </main>
-
-      {/* Image Preview Modal */}
-      {previewImage && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
-          <div className="relative max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setPreviewImage(null)} className="absolute -top-10 right-0 text-white hover:text-neon-cyan transition-colors">
-              <X className="w-6 h-6" />
-            </button>
-            <img src={previewImage} alt="Tweet media preview" className="w-full rounded-lg border border-border" />
-          </div>
-        </div>
-      )}
-
-      {/* Audio playing indicator */}
-      {playingAudio && (
-        <div className="fixed bottom-4 right-4 z-50 glass rounded-lg px-4 py-2 flex items-center gap-2 border border-neon-magenta/30">
-          <Mic className="w-4 h-4 text-neon-magenta animate-pulse" />
-          <span className="text-xs font-mono text-neon-magenta">PLAYING PREVIEW...</span>
-          <button onClick={handleStopAudio} className="text-muted-foreground hover:text-foreground">
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      )}
     </div>
   );
 };
