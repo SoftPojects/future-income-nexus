@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.merge-video]
 verify_jwt = false
+
+[functions.async-media-worker]
+verify_jwt = false
