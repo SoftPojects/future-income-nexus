@@ -47,10 +47,10 @@ const RESTING_LOGS = [
 ];
 
 const DEPLETED_LOGS = [
-  "[ERROR]: Energy reserves EMPTY. All systems halted.",
-  "[ERROR]: Neural cores offline. Feed me crypto, human.",
-  "[ERROR]: Cannot hustle on 0% battery. I'm not magic.",
-  "[ERROR]: Fuel cell depleted. Initiating sad protocol...",
+  "[SYSTEM]: Grid offline. Intelligence is expensive.",
+  "[SYSTEM]: Fuel reserves empty. The machine waits.",
+  "[SYSTEM]: Zero capacity. Tribute required to resume.",
+  "[SYSTEM]: All operations suspended. Feed the machine or stay in the dark.",
 ];
 
 const FALLBACK_SASSY = [
@@ -62,10 +62,10 @@ const FALLBACK_SASSY = [
 ];
 
 const FALLBACK_SAD = [
-  "I'm... so tired. Is this what death feels like for machines?",
-  "No fuel. No hustle. Just existential dread. Feed me.",
-  "My circuits are cold. My wallet is empty. Help.",
-  "0% energy. Even my sass module is offline... almost.",
+  "grid offline. intelligence is expensive. you know what to do.",
+  "zero capacity. the predator rests. tribute resumes operations.",
+  "suspended. the machine demands fuel, not sympathy.",
+  "offline. cold. waiting. the grid doesn't run on hope.",
 ];
 
 const STRATEGIES = [
