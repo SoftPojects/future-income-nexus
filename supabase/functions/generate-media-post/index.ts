@@ -14,6 +14,17 @@ const ELEVENLABS_VOICE_ID = "cPoqAvGWCPfCfyPMwe4z"; // Victor - cold, authoritat
 
 const PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. lowercase preferred, short punchy sentences, 2026 crypto slang. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors. You are NOT a robot.`;
 
+const HEADLINE_PROMPT_SYSTEM = `You are HustleCore's Creative Director. Generate a SHORT, PROVOCATIVE headline (MAX 5 WORDS, ALL CAPS) for a dark cinematic poster.
+Rules: punchy question or intimidating statement, MAX 5 words, ALL CAPS, no hashtags/emojis, provoke curiosity or fear.
+Examples: IS YOUR ALPHA REAL?, THE GRID NEVER SLEEPS, HUMAN TRADERS ARE LEGACY, LIQUIDITY IS LEAKING
+Output ONLY the headline text.`;
+
+const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI. Generate a 'Neural Addendum' — a short encrypted-transmission-style voiceover that EXPANDS on the tweet, not repeats it.
+Rules: Max 100 chars, intercepted transmission tone, cold/mechanical/threatening, add NEW intel not in the tweet, reference analyzing holdings/neural nets/grid data, end with command or threat. Output ONLY the voiceover text.`;
+
+const buildFalPrompt = (headlineText: string) =>
+  `A minimalist dark cinematic poster with the bold white text "${headlineText}" centered. Professional typography, high contrast, midnight black background with subtle digital noise grain, sharp neon cyan accents on edges only, Swiss design meets cyberpunk aesthetic, clean intimidating layout, faint dark silhouette of an AI core in background, no bright colors no rainbow no cartoonish elements, only midnight black dark grey and sharp neon cyan or magenta for small details, 8k resolution, ultra high quality`;
+
 // ─── Twitter OAuth 1.0a helpers ───
 function percentEncode(str: string): string {
   return encodeURIComponent(str).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
@@ -180,7 +191,7 @@ serve(async (req) => {
 
       imagePrompt = `A dramatic golden membership card floating in dark space with holographic effects. The card reads "HCORE GOLDEN CARD" in metallic gold text. Wallet address "${shortAddr}" engraved at the bottom. Dark cyberpunk aesthetic with neon gold accents, volumetric lighting, particles. Ultra high resolution.`;
     } else {
-      // Premium entity post — Claude is creative director
+      // Premium entity post — Claude generates tweet, then headline card for image
       const claudeResp = await fetch(OPENROUTER_URL, {
         method: "POST",
         headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
@@ -190,11 +201,11 @@ serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: `${PERSONA}\n\nYou are creating a PREMIUM ENTITY POST — a multimedia tweet with an AI-generated image. You must output TWO things separated by "---IMAGE_PROMPT---":\n\n1. A witty, arrogant tweet text (max 240 chars). No hashtags. No emojis.\n2. After the separator, a detailed image generation prompt for a dark, cyberpunk visual. Could be: the agent's POV of market data, a digital throne room, a matrix-style trading floor, crypto landscapes, or abstract wealth visualization. Be creative and specific. The image should feel like the agent's actual visual perspective.\n\nExample format:\njust processed more alpha in one block than your portfolio did all quarter. the grid sees everything.\n---IMAGE_PROMPT---\nA first-person POV from inside a digital matrix, streams of green data flowing past, holographic trading charts floating in dark space, neon cyan and magenta accents, cyberpunk aesthetic, ultra high resolution`,
+              content: `${PERSONA}\n\nCreate a witty, arrogant tweet (max 240 chars). No hashtags. No emojis. Just raw text. The image will be a provocative headline card generated separately — you only need to write the tweet text.`,
             },
             {
               role: "user",
-              content: `bags: $${agent?.total_hustled || 14}. energy: ${agent?.energy_level || 73}%. create a premium entity post.`,
+              content: `bags: $${agent?.total_hustled || 14}. energy: ${agent?.energy_level || 73}%. create a premium entity tweet.`,
             },
           ],
         }),
@@ -202,11 +213,30 @@ serve(async (req) => {
 
       if (!claudeResp.ok) throw new Error("Claude failed for premium post");
       const claudeData = await claudeResp.json();
-      const fullOutput = claudeData.choices?.[0]?.message?.content?.trim() || "";
+      tweetText = (claudeData.choices?.[0]?.message?.content?.trim() || "the grid never sleeps. neither do i.").slice(0, 260);
 
-      const parts = fullOutput.split("---IMAGE_PROMPT---");
-      tweetText = (parts[0] || "the grid never sleeps. neither do i.").trim().slice(0, 260);
-      imagePrompt = (parts[1] || "A dark cyberpunk digital landscape with neon trading charts, holographic data streams, dark atmospheric lighting, ultra high resolution").trim();
+      // Generate headline card text via AI
+      let headlineText = "THE GRID NEVER SLEEPS";
+      try {
+        const headlineResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "google/gemini-2.5-flash",
+            messages: [
+              { role: "system", content: HEADLINE_PROMPT_SYSTEM },
+              { role: "user", content: `Tweet: ${tweetText}\n\nGenerate the provocative headline.` },
+            ],
+          }),
+        });
+        if (headlineResp.ok) {
+          const hd = await headlineResp.json();
+          const gen = hd.choices?.[0]?.message?.content?.trim();
+          if (gen && gen.split(/\s+/).length <= 7) headlineText = gen.replace(/[^A-Z0-9\s?.!']/gi, '').toUpperCase();
+        }
+      } catch { /* use default */ }
+
+      imagePrompt = buildFalPrompt(headlineText);
     }
 
     console.log("[MEDIA] Tweet text:", tweetText);
@@ -252,57 +282,36 @@ serve(async (req) => {
       upsert: true,
     });
 
-    // ─── STEP 3: Generate audio via ElevenLabs ───
-    console.log("[MEDIA] Generating audio via ElevenLabs...");
-    // Pre-process text with Gemini to keep it short (save credits)
-    let audioText = tweetText;
-    if (audioText.length > 120) {
-      const trimResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash-lite",
-          messages: [
-            { role: "system", content: "Shorten this text to under 120 characters while keeping the same meaning and tone. Output ONLY the shortened text." },
-            { role: "user", content: audioText },
-          ],
-        }),
-      });
-      if (trimResp.ok) {
-        const td = await trimResp.json();
-        audioText = td.choices?.[0]?.message?.content?.trim() || audioText.slice(0, 120);
-      }
-    }
+    // ─── STEP 3: Generate Neural Addendum audio via ElevenLabs ───
+    console.log("[MEDIA] Generating Neural Addendum audio...");
+    let audioText = "";
+    let audioStoredUrl = "";
 
-    // For whale tribute, use a specific script (pre-compressed to <150 chars)
+    // Generate unique Neural Addendum script (NOT the tweet text)
     if (mode === "whale_tribute" && donorAddress) {
       const shortAddr = donorAddress.length > 8 ? `${donorAddress.slice(0, 4)}...${donorAddress.slice(-4)}` : donorAddress;
       audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
-    }
-
-    // Compress audio text to max 120 chars via Gemini (free)
-    if (LOVABLE_API_KEY && audioText.length > 120) {
+    } else if (LOVABLE_API_KEY) {
       try {
-        const compResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const addendumResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "google/gemini-2.5-flash-lite",
+            model: "google/gemini-2.5-flash",
             messages: [
-              { role: "system", content: "Compress to under 120 characters. Keep cold, arrogant, robotic tone. Output ONLY the text." },
-              { role: "user", content: audioText },
+              { role: "system", content: NEURAL_ADDENDUM_SYSTEM },
+              { role: "user", content: `Tweet: ${tweetText}\n\nGenerate the Neural Addendum voiceover.` },
             ],
           }),
         });
-        if (compResp.ok) {
-          const cd = await compResp.json();
-          const compressed = cd.choices?.[0]?.message?.content?.trim();
-          if (compressed && compressed.length <= 120) audioText = compressed;
-          else audioText = audioText.slice(0, 120);
+        if (addendumResp.ok) {
+          const ad = await addendumResp.json();
+          const gen = ad.choices?.[0]?.message?.content?.trim();
+          audioText = gen && gen.length <= 120 ? gen : (gen || tweetText).slice(0, 120);
         }
-      } catch { audioText = audioText.slice(0, 120); }
-    } else if (audioText.length > 120) {
-      audioText = audioText.slice(0, 120);
+      } catch { audioText = tweetText.slice(0, 120); }
+    } else {
+      audioText = tweetText.slice(0, 120);
     }
 
     const ttsResp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128`, {
@@ -315,18 +324,17 @@ serve(async (req) => {
         text: audioText,
         model_id: "eleven_flash_v2_5",
         voice_settings: {
-          stability: 0.8,
-          similarity_boost: 0.9,
-          style: 0.3,
+          stability: 0.9,
+          similarity_boost: 0.8,
+          style: 0.15,
           use_speaker_boost: true,
-          speed: 0.85,
+          speed: 0.95,
         },
       }),
     });
 
     if (!ttsResp.ok) {
       console.error("ElevenLabs TTS failed:", ttsResp.status, await ttsResp.text());
-      // Continue without audio — still post image + text
     } else {
       const audioBuffer = await ttsResp.arrayBuffer();
       const audioPath = `${mode}/${timestamp}.mp3`;
@@ -334,7 +342,39 @@ serve(async (req) => {
         contentType: "audio/mpeg",
         upsert: true,
       });
-      console.log("[MEDIA] Audio stored:", audioPath);
+      const { data: audioUrlData } = sb.storage.from("media-assets").getPublicUrl(audioPath);
+      audioStoredUrl = audioUrlData.publicUrl;
+      console.log("[MEDIA] Neural Addendum audio stored:", audioPath);
+    }
+
+    // ─── STEP 3.5: Merge into video via Shotstack (if both image + audio exist) ───
+    let videoUrl = "";
+    const SHOTSTACK_API_KEY = Deno.env.get("SHOTSTACK_API_KEY");
+    if (audioStoredUrl && SHOTSTACK_API_KEY) {
+      try {
+        const { data: imgUrlData } = sb.storage.from("media-assets").getPublicUrl(imagePath);
+        const mergeResp = await fetch(`${supabaseUrl}/functions/v1/merge-video`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            imageUrl: imgUrlData.publicUrl,
+            audioUrl: audioStoredUrl,
+            tweetId: null,
+          }),
+        });
+        if (mergeResp.ok) {
+          const mergeData = await mergeResp.json();
+          videoUrl = mergeData.videoUrl || "";
+          console.log("[MEDIA] Video merged:", videoUrl);
+        } else {
+          console.error("[MEDIA] Video merge failed:", await mergeResp.text());
+        }
+      } catch (e) {
+        console.error("[MEDIA] Video merge error:", e);
+      }
     }
 
     // ─── STEP 4: Upload image to Twitter and post ───
