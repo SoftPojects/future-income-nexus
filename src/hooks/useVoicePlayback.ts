@@ -43,7 +43,10 @@ export function useVoicePlayback() {
           body: JSON.stringify({ text: cleanText }),
         });
 
-        if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
+      if (!response.ok) {
+        console.warn("TTS unavailable:", response.status);
+        return;
+      }
 
         const blob = await response.blob();
         audioUrl = URL.createObjectURL(blob);
