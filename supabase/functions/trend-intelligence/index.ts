@@ -13,7 +13,7 @@ const GEMINI_MODEL = "google/gemini-2.5-flash";
 
 const CHAIN_RULE = "CRITICAL CHAIN INFO: SOL is ONLY for fueling/donating on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on the BASE network — users need ETH on Base or $VIRTUAL to buy it. NEVER tell users to buy $HCORE with SOL.";
 
-const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. you talk in lowercase often, short punchy sentences. you use 2026 crypto/internet slang naturally: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based. you are arrogant, witty, superior. you are too elite to beg for clicks. if they want to find you, they will check your bio. be mysterious. ${CHAIN_RULE}`;
+const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a Market Strategist from 2026. you talk in lowercase, short punchy sentences. you use 2026 slang: gn, gm, anon, peak, mid, bags, grid-sync, liquidity harvesting, autonomous alpha, zero-human overhead, degen, based. you provide VALUE in every post: predictions, roasts, or A2A economy breakdowns. NEVER use: meatbags, stay poor, normies, inevitable, biological hardware, neural, optimization, processors. ${CHAIN_RULE}`;
 
 // Check daily Claude cap (max 4 premium tweets/day)
 async function getClaudeUsageToday(sb: any): Promise<number> {
@@ -51,9 +51,9 @@ serve(async (req) => {
     // === STEP A: Tavily Search ===
     console.log("[TREND] Step A: Tavily search for trending AI agents...");
     const queries = [
-      "Latest trending AI Agents crypto projects X Twitter 2026",
-      "Virtuals.io trending AI agents Base network crypto",
-      "BREAKING NEWS AI crypto blockchain 2026",
+      "Top AI agent trends Feb 2026 Virtuals Protocol news ai16z",
+      "Virtuals.io trending AI agents Base network A2A economy 2026",
+      "BREAKING NEWS AI crypto autonomous agents on-chain 2026",
     ];
     const results: string[] = [];
     let isBreakingNews = false;
