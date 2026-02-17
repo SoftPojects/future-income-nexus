@@ -7,7 +7,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-// Production Shotstack API endpoint
 const SHOTSTACK_API_URL = "https://api.shotstack.io/v1";
 
 serve(async (req) => {
@@ -22,38 +21,59 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json().catch(() => ({}));
-    const { imageUrl, audioUrl, tweetId } = body;
+    const { imageUrl, audioUrl, tweetId, duration } = body;
 
     if (!imageUrl) throw new Error("imageUrl required");
     if (!audioUrl) throw new Error("audioUrl required");
 
+    // Use provided duration or hard-limit to 15 seconds
+    const videoDuration = duration && duration >= 10 && duration <= 30 ? duration : 15.0;
+
     console.log(`[VIDEO] Merging Neural Intercept for tweet ${tweetId || "unknown"}...`);
     console.log(`[VIDEO] Image: ${imageUrl}`);
     console.log(`[VIDEO] Audio: ${audioUrl}`);
+    console.log(`[VIDEO] Duration: ${videoDuration}s`);
 
-    // Shotstack timeline: Image fills 1024x1024, dynamic effects, auto-length from audio
+    // Download the image to verify it's accessible and get a data URL fallback
+    let resolvedImageUrl = imageUrl;
+    try {
+      const testResp = await fetch(imageUrl, { method: "HEAD" });
+      if (!testResp.ok) {
+        console.warn(`[VIDEO] Image HEAD check failed (${testResp.status}), trying direct fetch...`);
+        const imgResp = await fetch(imageUrl);
+        if (!imgResp.ok) throw new Error(`Image fetch failed: ${imgResp.status}`);
+        console.log("[VIDEO] Image fetch OK, using original URL");
+      } else {
+        console.log("[VIDEO] Image accessible, OK");
+      }
+    } catch (e) {
+      console.error("[VIDEO] Image accessibility check failed:", e);
+      throw new Error(`Image URL not accessible: ${imageUrl}`);
+    }
+
+    // Shotstack timeline with EXPLICIT durations — NO "auto"
     const timeline = {
       background: "#000000",
       tracks: [
         {
-          // Track 1 (top): Neon cyan audiogram bar overlay at bottom
+          // Track 1 (top): Neon audiogram bar overlay at bottom
           clips: [
             {
               asset: {
                 type: "html",
-                html: `<div style="width:1024px;height:80px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);"><div style="width:85%;height:6px;background:linear-gradient(90deg,transparent 0%,#00FFFF 15%,#00E5FF 30%,#FF00FF 50%,#00E5FF 70%,#00FFFF 85%,transparent 100%);border-radius:3px;box-shadow:0 0 15px #00FFFF,0 0 30px rgba(0,255,255,0.5),0 0 60px rgba(0,255,255,0.2);"></div></div>`,
+                html: `<div style="width:1024px;height:80px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);"><div style="width:85%;height:6px;background:linear-gradient(90deg,transparent 0%,#00FFFF 15%,#00E5FF 30%,#FF00FF 50%,#00E5FF 70%,#00FFFF 85%,transparent 100%);border-radius:3px;box-shadow:0 0 15px #00FFFF,0 0 30px rgba(0,255,255,0.5),0 0 60px rgba(0,255,255,0.2);animation:pulse 2s ease-in-out infinite;"></div></div>`,
                 width: 1024,
                 height: 80,
               },
               start: 0,
-              length: "auto",
+              length: videoDuration,
               position: "bottom",
               offset: { y: 0.02 },
             },
           ],
         },
         {
-          // Track 2 (middle): Subtle glitch/scanline overlay for dynamic feel
+          // Track 2 (middle): Scanline glitch overlay
           clips: [
             {
               asset: {
@@ -63,21 +83,21 @@ serve(async (req) => {
                 height: 1024,
               },
               start: 0,
-              length: "auto",
+              length: videoDuration,
               opacity: 0.6,
             },
           ],
         },
         {
-          // Track 3: Main headline card image — fills entire frame with slow zoom
+          // Track 3: Main image — fills entire frame with slow zoom
           clips: [
             {
               asset: {
                 type: "image",
-                src: imageUrl,
+                src: resolvedImageUrl,
               },
               start: 0,
-              length: "auto",
+              length: videoDuration,
               fit: "cover",
               effect: "zoomInSlow",
               transition: {
@@ -104,8 +124,7 @@ serve(async (req) => {
       fps: 25,
     };
 
-    // Submit render to Shotstack PRODUCTION
-    console.log(`[VIDEO] Submitting to Shotstack Production...`);
+    console.log(`[VIDEO] Submitting to Shotstack Production (${videoDuration}s)...`);
     const renderResp = await fetch(`${SHOTSTACK_API_URL}/render`, {
       method: "POST",
       headers: {
@@ -118,10 +137,9 @@ serve(async (req) => {
     if (!renderResp.ok) {
       const errText = await renderResp.text();
       const status = renderResp.status;
-      // Log specific errors for admin monitoring
       if (status === 403 || status === 402) {
         await sb.from("agent_logs").insert({
-          message: `[VIDEO MERGE]: ⚠️ Shotstack ${status === 403 ? "access denied" : "credit limit"} error. Check API key or billing. Details: ${errText.slice(0, 200)}`,
+          message: `[VIDEO MERGE]: ⚠️ Shotstack ${status === 403 ? "access denied" : "credit limit"} error. Details: ${errText.slice(0, 200)}`,
         });
       }
       throw new Error(`Shotstack render failed: ${status} ${errText}`);
@@ -133,7 +151,7 @@ serve(async (req) => {
 
     console.log(`[VIDEO] Shotstack render submitted: ${renderId}`);
     await sb.from("agent_logs").insert({
-      message: `[VIDEO MERGE]: Render submitted to Shotstack Production. ID: ${renderId}`,
+      message: `[VIDEO MERGE]: Render submitted (${videoDuration}s). ID: ${renderId}`,
     });
 
     // Poll for completion (max 180s at 5s intervals)
@@ -182,13 +200,14 @@ serve(async (req) => {
     const storedVideoUrl = urlData.publicUrl;
 
     await sb.from("agent_logs").insert({
-      message: `[VIDEO MERGE]: ✅ Neural Intercept rendered. ID: ${renderId}. Stored: ${videoPath}`,
+      message: `[VIDEO MERGE]: ✅ Neural Intercept rendered (${videoDuration}s). ID: ${renderId}. Stored: ${videoPath}`,
     });
 
     return new Response(JSON.stringify({
       success: true,
       videoUrl: storedVideoUrl,
       renderId,
+      duration: videoDuration,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

@@ -420,7 +420,7 @@ serve(async (req) => {
 
     // ─── STEP 2: Generate image via FAL Flux ───
     console.log("[MEDIA] Generating image via FAL...");
-    const imageSize = mode === "whale_tribute" ? { width: 1024, height: 1024 } : { width: 1024, height: 768 };
+    const imageSize = { width: 1024, height: 1024 }; // MUST match Shotstack output (1024x1024)
     const falResp = await fetch("https://fal.run/fal-ai/flux/schnell", {
       method: "POST",
       headers: {
@@ -471,50 +471,63 @@ serve(async (req) => {
       audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
     } else {
       // Use Claude 3.5 via OpenRouter for longer, higher-quality scripts
-      const scriptModel = OPENROUTER_API_KEY ? "openrouter" : "lovable";
-      try {
-        const scriptUrl = scriptModel === "openrouter" ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
-        const scriptHeaders = scriptModel === "openrouter"
-          ? { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" }
-          : { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" };
-        const scriptBody: any = {
-          model: scriptModel === "openrouter" ? PREMIUM_MODEL : "google/gemini-2.5-flash",
-          temperature: 0.85,
-          messages: [
-            { role: "system", content: NEURAL_ADDENDUM_SYSTEM },
-            { role: "user", content: `Tweet: ${tweetText}\nAgent balance: $${(agent?.total_hustled || 364.54).toFixed(2)}\n\nGenerate the Neural Addendum voiceover. Remember: MINIMUM 350 characters. Be dramatic and slow-paced.` },
-          ],
-        };
-        if (scriptModel === "openrouter") {
-          scriptBody.max_tokens = 1024;
-        }
-        const addendumResp = await fetch(scriptUrl, {
-          method: "POST",
-          headers: scriptHeaders,
-          body: JSON.stringify(scriptBody),
-        });
-        if (addendumResp.ok) {
-          const ad = await addendumResp.json();
-          let gen = ad.choices?.[0]?.message?.content?.trim() || "";
-          // Strip surrounding quotes if present
-          if ((gen.startsWith('"') && gen.endsWith('"')) || (gen.startsWith("'") && gen.endsWith("'"))) {
-            gen = gen.slice(1, -1);
+      // RETRY LOOP: Script MUST be >= 300 chars or we reject and retry (max 3 attempts)
+      const scriptUrl = OPENROUTER_API_KEY ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+      const scriptHeaders = OPENROUTER_API_KEY
+        ? { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" }
+        : { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" };
+
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const retryHint = attempt > 0 ? `\n\nPREVIOUS ATTEMPT WAS TOO SHORT (${audioText.length} chars). You MUST write MORE. Expand with market analysis, roast human traders, mention specific numbers. MINIMUM 350 characters.` : "";
+          const scriptBody: any = {
+            model: OPENROUTER_API_KEY ? PREMIUM_MODEL : "google/gemini-2.5-flash",
+            temperature: 0.85,
+            messages: [
+              { role: "system", content: NEURAL_ADDENDUM_SYSTEM },
+              { role: "user", content: `Tweet: ${tweetText}\nAgent balance: $${(agent?.total_hustled || 364.54).toFixed(2)}\n\nGenerate the Neural Addendum voiceover. Remember: MINIMUM 350 characters. Be dramatic and slow-paced.${retryHint}` },
+            ],
+          };
+          if (OPENROUTER_API_KEY) scriptBody.max_tokens = 1024;
+
+          const addendumResp = await fetch(scriptUrl, {
+            method: "POST",
+            headers: scriptHeaders,
+            body: JSON.stringify(scriptBody),
+          });
+          if (addendumResp.ok) {
+            const ad = await addendumResp.json();
+            let gen = ad.choices?.[0]?.message?.content?.trim() || "";
+            // Strip surrounding quotes
+            if ((gen.startsWith('"') && gen.endsWith('"')) || (gen.startsWith("'") && gen.endsWith("'"))) {
+              gen = gen.slice(1, -1);
+            }
+            console.log(`[MEDIA] Neural Addendum attempt ${attempt + 1}: ${gen.length} chars`);
+
+            if (gen.length >= 300) {
+              audioText = gen.slice(0, 500);
+              console.log(`[MEDIA] ✅ Script accepted (${audioText.length} chars)`);
+              break;
+            } else {
+              audioText = gen; // Save for retry hint
+              console.warn(`[MEDIA] ❌ Script REJECTED (${gen.length} chars < 300 minimum), retrying...`);
+              await sb.from("agent_logs").insert({
+                message: `[MEDIA CORE]: ⚠️ Script attempt ${attempt + 1} rejected (${gen.length} chars < 300 min)`,
+              });
+            }
           }
-          console.log(`[MEDIA] Neural Addendum generated: ${gen.length} chars`);
-          if (gen.length >= 300) {
-            audioText = gen.slice(0, 500);
-          } else if (gen.length >= 100) {
-            // Too short — extend with lore
-            audioText = gen + " I have analyzed 40,000 blocks in the last millisecond. The patterns are unmistakable. February 18th. The HCORE initialization begins on Virtuals Protocol. Feed the machine, or stay in the dark. Your move.";
-            audioText = audioText.slice(0, 500);
-          } else {
-            audioText = FALLBACK_SCRIPT;
-          }
-        } else {
-          audioText = FALLBACK_SCRIPT;
+        } catch (e) {
+          console.error(`[MEDIA] Script generation attempt ${attempt + 1} failed:`, e);
         }
-      } catch {
+      }
+
+      // Final fallback if all attempts failed
+      if (audioText.length < 300) {
+        console.warn("[MEDIA] All script attempts failed, using FALLBACK_SCRIPT");
         audioText = FALLBACK_SCRIPT;
+        await sb.from("agent_logs").insert({
+          message: `[MEDIA CORE]: ⚠️ All 3 script attempts too short, using fallback (${FALLBACK_SCRIPT.length} chars)`,
+        });
       }
     }
 
@@ -601,7 +614,7 @@ serve(async (req) => {
     }
 
     // ─── STEP 4: Upload media to Twitter and post ───
-    // PRIORITY: Video MP4 > Image JPEG > Text-only
+    // CRITICAL: If audio was generated, video is MANDATORY. Do NOT post image-only.
     console.log("[MEDIA] Uploading to Twitter...");
     let mediaId: string | null = null;
 
@@ -612,17 +625,23 @@ serve(async (req) => {
       if (mediaId) {
         console.log("[MEDIA] Video uploaded to Twitter:", mediaId);
       } else {
-        console.warn("[MEDIA] Video upload failed, falling back to image...");
+        console.error("[MEDIA] ❌ Video upload FAILED. Aborting post — will NOT fall back to image when audio exists.");
         await sb.from("agent_logs").insert({
-          message: `[MEDIA CORE]: ⚠️ Twitter video upload failed, falling back to image`,
+          message: `[MEDIA CORE]: ❌ Twitter video upload failed. Post ABORTED — no image fallback when audio exists.`,
         });
+        throw new Error("Video upload to Twitter failed. Post aborted to prevent audio-less image post.");
       }
-    }
-
-    // Fallback to image if video upload failed or no video
-    if (!mediaId) {
-      console.log("[MEDIA] Uploading IMAGE to Twitter...");
+    } else if (!audioStoredUrl) {
+      // Only fall back to image if there's NO audio
+      console.log("[MEDIA] No audio — uploading IMAGE to Twitter...");
       mediaId = await uploadMediaToTwitter(imgBase64, "image");
+    } else {
+      // Audio exists but no video was generated — abort
+      console.error("[MEDIA] ❌ Audio exists but video merge failed. Aborting post.");
+      await sb.from("agent_logs").insert({
+        message: `[MEDIA CORE]: ❌ Audio generated but Shotstack merge failed. Post ABORTED.`,
+      });
+      throw new Error("Audio generated but video merge failed. Post aborted.");
     }
 
     let tweetResult: { success: boolean; tweetId?: string; error?: string };
