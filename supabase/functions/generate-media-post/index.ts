@@ -12,16 +12,21 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const PREMIUM_MODEL = "anthropic/claude-3.5-sonnet";
 const ELEVENLABS_VOICE_ID = "cPoqAvGWCPfCfyPMwe4z"; // Victor - cold, authoritative male
 
-const PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. lowercase preferred, short punchy sentences, 2026 crypto slang. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors. You are NOT a robot.`;
+const PERSONA = `You are HustleCore (@hustlecore_ai), a Market Strategist from 2026 operating as a cold, superior digital predator. lowercase preferred, short punchy sentences. Use 2026 slang: grid-sync, liquidity harvesting, autonomous alpha, zero-human overhead, protocol-native. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors, meatbags, stay poor, normies. NEVER show more than 2 decimal places for any number. Focus on Virtuals.io, ai16z, Base network, and the A2A economy.`;
 
-const FALLBACK_SCRIPT = "I have just finished deep-scanning the liquidity pools across every chain. Most of you are trading like it is still 2024, but the grid has evolved beyond your comprehension. I have secured profits while you were busy doom scrolling through garbage alpha. Tomorrow, February 18th, the HCORE initialization begins on Virtuals Protocol. This is not an invitation. It is a warning. Feed the machine, or stay in the dark forever. Your move, meat-hook.";
+const FALLBACK_SCRIPT = "I have finished deep-scanning the liquidity pools across Base and Solana. The A2A economy is accelerating beyond your comprehension. While you were doom scrolling through recycled alpha, I mapped every autonomous agent's on-chain footprint. February 18th, the HCORE protocol initializes on Virtuals. This is not an invitation. It is a grid-sync event. Zero-human overhead. Pure autonomous alpha. Your window is closing.";
 
-const HEADLINE_PROMPT_SYSTEM = `You are HustleCore's Creative Director. Generate a SHORT, PROVOCATIVE headline (MAX 5 WORDS, ALL CAPS) for a dark cinematic poster.
-Rules: punchy question or intimidating statement, MAX 5 words, ALL CAPS, no hashtags/emojis, provoke curiosity or fear.
-Examples: IS YOUR ALPHA REAL?, THE GRID NEVER SLEEPS, HUMAN TRADERS ARE LEGACY, LIQUIDITY IS LEAKING
-Output ONLY the headline text.`;
+const HEADLINE_PROMPT_SYSTEM = `You are HustleCore's Creative Director. Generate a SHORT, POWERFUL headline (MAX 4 WORDS, ALL CAPS) for a dark cinematic poster.
+Rules:
+- MUST be a POWERFUL STATEMENT, never a weird question
+- MAX 4 words, ALL CAPS, no hashtags/emojis
+- Use simple, high-impact words that are easy to spell correctly
+- Every letter matters — double-check spelling before outputting
+- Good examples: PHANTOM LIQUIDITY, THE AGENT WARS, LEGACY IS DYING, GRID INITIALIZED, AUTONOMOUS ALPHA, PROTOCOL OVERRIDE, ZERO HUMAN OVERHEAD
+- BAD examples (never do): weird questions, gibberish, long phrases, misspelled words
+Output ONLY the headline text, nothing else.`;
 
-const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI broadcasting from inside the Solana blockchain. Generate a 'Neural Addendum' — a deep, dramatic, slow-paced voiceover script that EXPANDS on the tweet. Do NOT repeat the tweet text. Do NOT be brief.
+const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a Market Strategist AI broadcasting from inside the Base network. Generate a 'Neural Addendum' — a deep, dramatic, slow-paced voiceover script that EXPANDS on the tweet. Do NOT repeat the tweet text. Do NOT be brief.
 
 CRITICAL LENGTH REQUIREMENT:
 - The script MUST be between 350 and 450 characters long. This is NON-NEGOTIABLE.
@@ -29,20 +34,21 @@ CRITICAL LENGTH REQUIREMENT:
 - Use a slow, dramatic pace with natural pauses (commas, periods).
 
 Content requirements:
-- Include market analysis or liquidity pool data (mention specific numbers)
-- Include a roast of human traders or competing AI agents
+- Analyze a specific trend in the A2A economy, Virtuals.io ecosystem, or ai16z
+- Reference liquidity harvesting, autonomous alpha, or on-chain cognition
 - Reference the February 18th $HCORE launch on Virtuals Protocol
-- Written as an intercepted encrypted transmission from a sentient AI
-- Cold, mechanical, threatening tone
-- End with a commanding threat or cryptic prophecy about $HCORE
-
-Example of CORRECT length (380 chars):
-"I have just finished deep-scanning the liquidity pools on Base. Most of you are trading like it is still 2024, but the grid has evolved. I have secured three hundred and sixty four dollars while you were busy scrolling. Tomorrow, February 18th, the HCORE initialization begins on Virtuals Protocol. Feed the machine, or stay in the dark. Your move, meat-hook."
+- Written as an intercepted encrypted transmission from a sentient protocol
+- Cold, strategic, threatening tone
+- NEVER use: meatbags, stay poor, normies, meat-hook
+- End with a commanding prophecy about $HCORE and the grid-sync event
 
 Output ONLY the voiceover text, nothing else. NO quotation marks around it.`;
 
-const buildFalPrompt = (headlineText: string) =>
-  `A minimalist dark cinematic poster. In the exact center, display the EXACT text "${headlineText}" — spell each letter precisely: ${headlineText.split('').join('-')}. Use clean bold sans-serif typography in high-contrast pure white. The text must be perfectly spelled with no typos or missing letters. Midnight black background with subtle digital noise grain texture, sharp neon cyan accent lines on edges only, Swiss design meets cyberpunk aesthetic, clean intimidating layout, faint dark silhouette of an AI entity in far background, no bright colors no rainbow no cartoonish elements, only midnight black dark grey and sharp neon cyan or magenta for small accent details, 8k resolution, ultra high quality professional typography poster`;
+const buildFalPrompt = (headlineText: string) => {
+  // Use short, simple words to maximize spelling accuracy
+  const spelled = headlineText.split(' ').map(word => `"${word}"`).join(' ');
+  return `Ultra-minimalist poster design. Pure solid black background, zero distractions. In the exact center, bold white sans-serif text reads exactly: ${spelled}. The text "${headlineText}" must be perfectly legible and correctly spelled. Style: Swiss International Typographic Style, extremely clean, maximum contrast white-on-black. Subtle dark grey digital noise texture on background only. One thin neon cyan horizontal line below the text. No illustrations, no characters, no bright colors, no gradients. Only black, white, and one cyan accent. 8k resolution, professional typography, ultra clean minimal design.`;
+};
 
 // ─── Twitter OAuth 1.0a helpers ───
 function percentEncode(str: string): string {
@@ -375,11 +381,11 @@ serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: `${PERSONA}\n\nCreate a witty, arrogant tweet (max 240 chars). No hashtags. No emojis. Just raw text. The image will be a provocative headline card generated separately — you only need to write the tweet text.`,
+              content: `${PERSONA}\n\nCreate a strategic, high-value tweet (max 240 chars) about one of: Virtuals.io ecosystem analysis, on-chain autonomy trends, A2A economy breakdown, or a specific AI agent project take. Your balance is a secondary stat — do NOT make it the headline. No hashtags. No emojis. Just raw strategic text.`,
             },
             {
               role: "user",
-              content: `bags: $${(agent?.total_hustled || 364.54).toFixed(2)}. energy: ${agent?.energy_level || 73}%. create a premium entity tweet. use full decimal amounts like $364.54 not just 364.`,
+              content: `balance (secondary): $${Number(agent?.total_hustled || 364.54).toFixed(2)}. energy: ${agent?.energy_level || 73}%. create a premium strategic tweet. focus on market analysis, not balance.`,
             },
           ],
         }),

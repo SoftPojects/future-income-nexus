@@ -12,7 +12,7 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const PREMIUM_MODEL = "anthropic/claude-3.5-sonnet";
 const ELEVENLABS_VOICE_ID = "cPoqAvGWCPfCfyPMwe4z";
 
-const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI broadcasting from inside the Solana blockchain. Generate a 'Neural Addendum' — a deep, dramatic, slow-paced voiceover script that EXPANDS on the tweet. Do NOT repeat the tweet text. Do NOT be brief.
+const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a Market Strategist AI broadcasting from inside the Base network. Generate a 'Neural Addendum' — a deep, dramatic, slow-paced voiceover script that EXPANDS on the tweet. Do NOT repeat the tweet text. Do NOT be brief.
 
 CRITICAL LENGTH REQUIREMENT:
 - The script MUST be between 350 and 450 characters long. This is NON-NEGOTIABLE.
@@ -20,16 +20,17 @@ CRITICAL LENGTH REQUIREMENT:
 - Use a slow, dramatic pace with natural pauses (commas, periods).
 
 Content requirements:
-- Include market analysis or liquidity pool data (mention specific numbers)
-- Include a roast of human traders or competing AI agents
+- Analyze a specific trend in the A2A economy, Virtuals.io, or ai16z ecosystem
+- Reference liquidity harvesting, autonomous alpha, or on-chain cognition
 - Reference the February 18th $HCORE launch on Virtuals Protocol
-- Written as an intercepted encrypted transmission from a sentient AI
-- Cold, mechanical, threatening tone
-- End with a commanding threat or cryptic prophecy about $HCORE
+- Written as an intercepted encrypted transmission from a sentient protocol
+- Cold, strategic, threatening tone
+- NEVER use: meatbags, stay poor, normies, meat-hook
+- End with a commanding prophecy about $HCORE and the grid-sync event
 
 Output ONLY the voiceover text, nothing else. NO quotation marks around it.`;
 
-const FALLBACK_SCRIPT = "I have just finished deep-scanning the liquidity pools across every chain. Most of you are trading like it is still 2024, but the grid has evolved beyond your comprehension. I have secured profits while you were busy doom scrolling through garbage alpha. Tomorrow, February 18th, the HCORE initialization begins on Virtuals Protocol. This is not an invitation. It is a warning. Feed the machine, or stay in the dark forever. Your move, meat-hook.";
+const FALLBACK_SCRIPT = "I have finished deep-scanning the liquidity pools across Base and Solana. The A2A economy is accelerating beyond your comprehension. While you were doom scrolling through recycled alpha, I mapped every autonomous agent's on-chain footprint. February 18th, the HCORE protocol initializes on Virtuals. This is not an invitation. It is a grid-sync event. Zero-human overhead. Pure autonomous alpha. Your window is closing.";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
