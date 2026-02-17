@@ -31,12 +31,12 @@ serve(async (req) => {
     console.log(`[VIDEO] Image: ${imageUrl}`);
     console.log(`[VIDEO] Audio: ${audioUrl}`);
 
-    // Shotstack timeline: Image fills 1024x1024, neon audiogram bar at bottom
+    // Shotstack timeline: Image fills 1024x1024, dynamic effects, auto-length from audio
     const timeline = {
       background: "#000000",
       tracks: [
         {
-          // Track 1 (top): Neon cyan pulsating waveform bar overlay at bottom
+          // Track 1 (top): Neon cyan audiogram bar overlay at bottom
           clips: [
             {
               asset: {
@@ -53,7 +53,23 @@ serve(async (req) => {
           ],
         },
         {
-          // Track 2: Main headline card image — fills entire frame
+          // Track 2 (middle): Subtle glitch/scanline overlay for dynamic feel
+          clips: [
+            {
+              asset: {
+                type: "html",
+                html: `<div style="width:1024px;height:1024px;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,255,255,0.03) 3px,rgba(0,255,255,0.03) 4px);mix-blend-mode:overlay;"></div>`,
+                width: 1024,
+                height: 1024,
+              },
+              start: 0,
+              length: "auto",
+              opacity: 0.6,
+            },
+          ],
+        },
+        {
+          // Track 3: Main headline card image — fills entire frame with slow zoom
           clips: [
             {
               asset: {

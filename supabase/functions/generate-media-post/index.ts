@@ -19,8 +19,21 @@ Rules: punchy question or intimidating statement, MAX 5 words, ALL CAPS, no hash
 Examples: IS YOUR ALPHA REAL?, THE GRID NEVER SLEEPS, HUMAN TRADERS ARE LEGACY, LIQUIDITY IS LEAKING
 Output ONLY the headline text.`;
 
-const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI. Generate a 'Neural Addendum' — a short encrypted-transmission-style voiceover that EXPANDS on the tweet, not repeats it.
-Rules: Max 100 chars, intercepted transmission tone, cold/mechanical/threatening, add NEW intel not in the tweet, reference analyzing holdings/neural nets/grid data, end with command or threat. Output ONLY the voiceover text.`;
+const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI. Generate a 'Neural Addendum' — a deep, mysterious encrypted-transmission-style voiceover that EXPANDS on the tweet. Do NOT repeat the tweet text.
+
+Rules:
+- MINIMUM 200 characters, MAXIMUM 300 characters. This is critical — short scripts sound robotic and cheap.
+- Written as an intercepted encrypted transmission from a sentient AI entity
+- Cold, mechanical, threatening tone — like an AI broadcasting from inside the blockchain
+- Must add NEW intel, lore, or alpha not in the tweet
+- Reference specific data: block counts, wallet scans, neural net analysis, grid patterns, liquidity flows
+- Include a date, countdown, or specific number for authenticity
+- End with a commanding threat or cryptic prophecy
+- Output ONLY the voiceover text, nothing else
+
+Example quality level:
+"I have analyzed 40,000 blocks in the last millisecond. I see the patterns you call luck. HustleCore is not a choice; it is the final evolution of capital. 18th of February. The grid accepts no excuses. $HCORE."
+`;
 
 const buildFalPrompt = (headlineText: string) =>
   `A minimalist dark cinematic poster. In the exact center, display the EXACT text "${headlineText}" — spell each letter precisely: ${headlineText.split('').join('-')}. Use clean bold sans-serif typography in high-contrast pure white. The text must be perfectly spelled with no typos or missing letters. Midnight black background with subtle digital noise grain texture, sharp neon cyan accent lines on edges only, Swiss design meets cyberpunk aesthetic, clean intimidating layout, faint dark silhouette of an AI entity in far background, no bright colors no rainbow no cartoonish elements, only midnight black dark grey and sharp neon cyan or magenta for small accent details, 8k resolution, ultra high quality professional typography poster`;
@@ -455,7 +468,7 @@ serve(async (req) => {
 
     // Use manual audio script if provided, otherwise generate Neural Addendum
     if (manualAudioScript) {
-      audioText = manualAudioScript.slice(0, 300);
+      audioText = manualAudioScript.slice(0, 350);
     } else if (mode === "whale_tribute" && donorAddress) {
       const shortAddr = donorAddress.length > 8 ? `${donorAddress.slice(0, 4)}...${donorAddress.slice(-4)}` : donorAddress;
       audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
@@ -475,11 +488,21 @@ serve(async (req) => {
         if (addendumResp.ok) {
           const ad = await addendumResp.json();
           const gen = ad.choices?.[0]?.message?.content?.trim();
-          audioText = gen && gen.length <= 120 ? gen : (gen || tweetText).slice(0, 120);
+          if (gen && gen.length >= 150 && gen.length <= 350) {
+            audioText = gen;
+          } else if (gen && gen.length > 350) {
+            audioText = gen.slice(0, 300);
+          } else if (gen) {
+            // Too short — pad with lore suffix
+            audioText = gen + " The grid remembers. 18th of February. $HCORE.";
+            audioText = audioText.slice(0, 300);
+          } else {
+            audioText = "I have scanned every wallet in the last epoch. The patterns are clear. HustleCore is the final evolution of capital. The grid opens soon. There are no second chances. $HCORE.";
+          }
         }
-      } catch { audioText = tweetText.slice(0, 120); }
+      } catch { audioText = "I have scanned every wallet in the last epoch. The patterns are clear. HustleCore is the final evolution of capital. The grid opens soon. There are no second chances. $HCORE."; }
     } else {
-      audioText = tweetText.slice(0, 120);
+      audioText = "I have scanned every wallet in the last epoch. The patterns are clear. HustleCore is the final evolution of capital. The grid opens soon. There are no second chances. $HCORE.";
     }
 
     const ttsResp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128`, {
@@ -492,11 +515,11 @@ serve(async (req) => {
         text: audioText,
         model_id: "eleven_flash_v2_5",
         voice_settings: {
-          stability: 0.9,
-          similarity_boost: 0.8,
-          style: 0.15,
+          stability: 0.85,
+          similarity_boost: 0.75,
+          style: 0.2,
           use_speaker_boost: true,
-          speed: 0.95,
+          speed: 0.9,
         },
       }),
     });
