@@ -25,7 +25,7 @@ serve(async (req) => {
     if (agent.agent_status === "depleted" || agent.energy_level <= 0) {
       if (agent.agent_status !== "depleted") {
         await supabase.from("agent_state").update({ agent_status: "depleted", energy_level: 0, updated_at: new Date().toISOString() }).eq("id", agent.id);
-        await supabase.from("agent_logs").insert({ message: "[ERROR]: energy depleted. hustle ceased. feed me ser." });
+        await supabase.from("agent_logs").insert({ message: "[SYSTEM]: Grid offline. Intelligence is expensive." });
       }
       return new Response(JSON.stringify({ status: "depleted", skipped: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -95,7 +95,7 @@ serve(async (req) => {
     await supabase.from("agent_logs").insert({ message: logEntry });
 
     if (newEnergy <= 0) {
-      await supabase.from("agent_logs").insert({ message: "[ERROR]: energy depleted. hustle ceased. feed me ser." });
+      await supabase.from("agent_logs").insert({ message: "[SYSTEM]: Grid offline. Fuel reserves empty. The machine waits." });
     }
 
     return new Response(
