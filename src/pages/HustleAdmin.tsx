@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, Camera, Mic, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,8 @@ interface TweetQueueItem {
   created_at: string;
   posted_at: string | null;
   error_message?: string | null;
+  image_url?: string | null;
+  audio_url?: string | null;
 }
 
 interface XMention {
@@ -141,6 +143,10 @@ const HustleAdmin = () => {
   const [recentExecCount, setRecentExecCount] = useState(0);
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
   const [editingHandle, setEditingHandle] = useState("");
+  const [injectingMedia, setInjectingMedia] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [previewAudio, setPreviewAudio] = useState<string | null>(null);
+  const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
@@ -321,6 +327,51 @@ const HustleAdmin = () => {
     } finally {
       setBatchGenerating(false);
     }
+  };
+
+  const handleInjectMedia = async () => {
+    // Find US MORNING PEAK and US LUNCH PEAK tweets
+    const targetTweets = tweets.filter((t) => t.status === "pending").filter((t) => {
+      const { label } = getScheduleLabel(t.scheduled_at, t.type);
+      return label.includes("US MORNING PEAK") || label.includes("US LUNCH PEAK");
+    });
+    if (!targetTweets.length) {
+      toast({ title: "NO TARGETS", description: "No US Morning/Lunch peak tweets found in queue.", variant: "destructive" });
+      return;
+    }
+    setInjectingMedia(true);
+    setMediaStatus("rendering");
+    try {
+      const { data, error } = await supabase.functions.invoke("inject-media", {
+        body: { tweetIds: targetTweets.map((t) => t.id), voiceMode: "paid" },
+      });
+      if (error) throw error;
+      const generated = data?.results?.filter((r: any) => r.image_url || r.audio_url)?.length || 0;
+      toast({ title: "MEDIA INJECTED", description: `${generated}/${targetTweets.length} tweets enriched with visuals/audio.` });
+      setMediaStatus("ready");
+      fetchTweets();
+    } catch (e) {
+      setMediaStatus("error");
+      toast({ title: "Media injection failed", description: String(e), variant: "destructive" });
+    } finally {
+      setInjectingMedia(false);
+    }
+  };
+
+  const handleStopAudio = () => {
+    if (playingAudio) {
+      playingAudio.pause();
+      playingAudio.currentTime = 0;
+      setPlayingAudio(null);
+    }
+  };
+
+  const handlePlayPreview = (url: string) => {
+    handleStopAudio();
+    const audio = new Audio(url);
+    audio.onended = () => setPlayingAudio(null);
+    audio.play();
+    setPlayingAudio(audio);
   };
 
   const handleManualPost = async () => {
@@ -659,6 +710,10 @@ const HustleAdmin = () => {
                     <Activity className="w-4 h-4 mr-1" />
                     {batchGenerating ? "Pre-Generating..." : "PRE-GEN 24H QUEUE"}
                   </Button>
+                  <Button onClick={handleInjectMedia} disabled={injectingMedia} size="sm" variant="outline" className="border-neon-magenta/50 text-neon-magenta">
+                    <Film className="w-4 h-4 mr-1" />
+                    {injectingMedia ? "Rendering..." : "INJECT MEDIA"}
+                  </Button>
                   <Button onClick={fetchTweets} variant="outline" size="sm">
                     <RefreshCw className="w-4 h-4" />
                   </Button>
@@ -727,6 +782,24 @@ const HustleAdmin = () => {
                               </span>
                             );
                           })()}
+                          {tweet.image_url && (
+                            <button
+                              onClick={() => setPreviewImage(tweet.image_url!)}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30 text-[9px] font-mono font-bold hover:bg-neon-cyan/20 transition-colors cursor-pointer"
+                              title="Preview image"
+                            >
+                              <Camera className="w-3 h-3" /> IMG
+                            </button>
+                          )}
+                          {tweet.audio_url && (
+                            <button
+                              onClick={() => handlePlayPreview(tweet.audio_url!)}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/30 text-[9px] font-mono font-bold hover:bg-neon-magenta/20 transition-colors cursor-pointer"
+                              title="Preview audio"
+                            >
+                              <Mic className="w-3 h-3" /> TTS
+                            </button>
+                          )}
                         </div>
                         <div className="flex gap-1">
                           {!autopilot && (
@@ -1275,6 +1348,29 @@ const HustleAdmin = () => {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-2xl w-full" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setPreviewImage(null)} className="absolute -top-10 right-0 text-white hover:text-neon-cyan transition-colors">
+              <X className="w-6 h-6" />
+            </button>
+            <img src={previewImage} alt="Tweet media preview" className="w-full rounded-lg border border-border" />
+          </div>
+        </div>
+      )}
+
+      {/* Audio playing indicator */}
+      {playingAudio && (
+        <div className="fixed bottom-4 right-4 z-50 glass rounded-lg px-4 py-2 flex items-center gap-2 border border-neon-magenta/30">
+          <Mic className="w-4 h-4 text-neon-magenta animate-pulse" />
+          <span className="text-xs font-mono text-neon-magenta">PLAYING PREVIEW...</span>
+          <button onClick={handleStopAudio} className="text-muted-foreground hover:text-foreground">
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -220,10 +220,12 @@ export type Database = {
       }
       tweet_queue: {
         Row: {
+          audio_url: string | null
           content: string
           created_at: string
           error_message: string | null
           id: string
+          image_url: string | null
           model_used: string | null
           posted_at: string | null
           reply_to_tweet_id: string | null
@@ -232,10 +234,12 @@ export type Database = {
           type: string
         }
         Insert: {
+          audio_url?: string | null
           content: string
           created_at?: string
           error_message?: string | null
           id?: string
+          image_url?: string | null
           model_used?: string | null
           posted_at?: string | null
           reply_to_tweet_id?: string | null
@@ -244,10 +248,12 @@ export type Database = {
           type?: string
         }
         Update: {
+          audio_url?: string | null
           content?: string
           created_at?: string
           error_message?: string | null
           id?: string
+          image_url?: string | null
           model_used?: string | null
           posted_at?: string | null
           reply_to_tweet_id?: string | null
