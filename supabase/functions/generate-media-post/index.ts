@@ -23,7 +23,7 @@ const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI.
 Rules: Max 100 chars, intercepted transmission tone, cold/mechanical/threatening, add NEW intel not in the tweet, reference analyzing holdings/neural nets/grid data, end with command or threat. Output ONLY the voiceover text.`;
 
 const buildFalPrompt = (headlineText: string) =>
-  `A minimalist dark cinematic poster with the bold white text "${headlineText}" centered. Professional typography, high contrast, midnight black background with subtle digital noise grain, sharp neon cyan accents on edges only, Swiss design meets cyberpunk aesthetic, clean intimidating layout, faint dark silhouette of an AI core in background, no bright colors no rainbow no cartoonish elements, only midnight black dark grey and sharp neon cyan or magenta for small details, 8k resolution, ultra high quality`;
+  `A minimalist dark cinematic poster. In the exact center, display the EXACT text "${headlineText}" — spell each letter precisely: ${headlineText.split('').join('-')}. Use clean bold sans-serif typography in high-contrast pure white. The text must be perfectly spelled with no typos or missing letters. Midnight black background with subtle digital noise grain texture, sharp neon cyan accent lines on edges only, Swiss design meets cyberpunk aesthetic, clean intimidating layout, faint dark silhouette of an AI entity in far background, no bright colors no rainbow no cartoonish elements, only midnight black dark grey and sharp neon cyan or magenta for small accent details, 8k resolution, ultra high quality professional typography poster`;
 
 // ─── Twitter OAuth 1.0a helpers ───
 function percentEncode(str: string): string {
@@ -46,7 +46,12 @@ function buildOAuthHeader(params: Record<string, string>): string {
   return "OAuth " + Object.keys(params).sort().map(k => `${percentEncode(k)}="${percentEncode(params[k])}"`).join(", ");
 }
 
-async function uploadMediaToTwitter(imageBase64: string): Promise<string | null> {
+// Upload image to Twitter (simple base64 upload for images)
+async function uploadMediaToTwitter(mediaBase64: string, mediaType: "image" | "video" = "image"): Promise<string | null> {
+  if (mediaType === "video") {
+    return await uploadVideoToTwitter(mediaBase64);
+  }
+
   const consumerKey = Deno.env.get("X_API_KEY")!;
   const consumerSecret = Deno.env.get("X_API_SECRET")!;
   const accessToken = Deno.env.get("X_ACCESS_TOKEN")!;
@@ -54,17 +59,16 @@ async function uploadMediaToTwitter(imageBase64: string): Promise<string | null>
 
   const url = "https://upload.twitter.com/1.1/media/upload.json";
   const nonce = crypto.randomUUID().replace(/-/g, "");
-  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const ts = Math.floor(Date.now() / 1000).toString();
 
-  // For media upload, include media_data in signature params
   const allParams: Record<string, string> = {
     oauth_consumer_key: consumerKey,
     oauth_nonce: nonce,
     oauth_signature_method: "HMAC-SHA1",
-    oauth_timestamp: timestamp,
+    oauth_timestamp: ts,
     oauth_token: accessToken,
     oauth_version: "1.0",
-    media_data: imageBase64,
+    media_data: mediaBase64,
   };
 
   const signature = await generateOAuthSignature("POST", url, allParams, consumerSecret, accessTokenSecret);
@@ -72,31 +76,189 @@ async function uploadMediaToTwitter(imageBase64: string): Promise<string | null>
     oauth_consumer_key: consumerKey,
     oauth_nonce: nonce,
     oauth_signature_method: "HMAC-SHA1",
-    oauth_timestamp: timestamp,
+    oauth_timestamp: ts,
     oauth_token: accessToken,
     oauth_version: "1.0",
     oauth_signature: signature,
   };
 
   const authHeader = buildOAuthHeader(oauthParams);
-
   const resp = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: authHeader,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: `media_data=${percentEncode(imageBase64)}`,
+    headers: { Authorization: authHeader, "Content-Type": "application/x-www-form-urlencoded" },
+    body: `media_data=${percentEncode(mediaBase64)}`,
   });
 
   if (!resp.ok) {
-    const errText = await resp.text();
-    console.error("Media upload failed:", resp.status, errText);
+    console.error("Image upload failed:", resp.status, await resp.text());
     return null;
   }
-
   const data = await resp.json();
   return data.media_id_string || null;
+}
+
+// ─── Chunked video upload to Twitter ───
+async function uploadVideoToTwitter(videoBase64: string): Promise<string | null> {
+  const consumerKey = Deno.env.get("X_API_KEY")!;
+  const consumerSecret = Deno.env.get("X_API_SECRET")!;
+  const accessToken = Deno.env.get("X_ACCESS_TOKEN")!;
+  const accessTokenSecret = Deno.env.get("X_ACCESS_SECRET")!;
+  const url = "https://upload.twitter.com/1.1/media/upload.json";
+
+  const videoBytes = Uint8Array.from(atob(videoBase64), c => c.charCodeAt(0));
+  const totalBytes = videoBytes.length;
+
+  async function makeUploadRequest(params: Record<string, string>, bodyParams?: Record<string, string>, binaryBody?: { fieldName: string; data: Uint8Array }): Promise<Response> {
+    const nonce = crypto.randomUUID().replace(/-/g, "");
+    const ts = Math.floor(Date.now() / 1000).toString();
+    const oauthBase: Record<string, string> = {
+      oauth_consumer_key: consumerKey,
+      oauth_nonce: nonce,
+      oauth_signature_method: "HMAC-SHA1",
+      oauth_timestamp: ts,
+      oauth_token: accessToken,
+      oauth_version: "1.0",
+      ...params,
+    };
+    const signature = await generateOAuthSignature("POST", url, oauthBase, consumerSecret, accessTokenSecret);
+    const oauthHeader: Record<string, string> = {
+      oauth_consumer_key: consumerKey,
+      oauth_nonce: nonce,
+      oauth_signature_method: "HMAC-SHA1",
+      oauth_timestamp: ts,
+      oauth_token: accessToken,
+      oauth_version: "1.0",
+      oauth_signature: signature,
+    };
+    const authHeader = buildOAuthHeader(oauthHeader);
+
+    if (binaryBody) {
+      // Multipart form for APPEND
+      const boundary = "----TwitterUpload" + Date.now();
+      const header = `--${boundary}\r\nContent-Disposition: form-data; name="media_data"\r\n\r\n`;
+      const footer = `\r\n--${boundary}--\r\n`;
+      // Send as base64 in form-urlencoded for simplicity
+      const formBody = Object.entries({ ...params, media_data: videoBase64 })
+        .map(([k, v]) => `${percentEncode(k)}=${percentEncode(v)}`)
+        .join("&");
+      return fetch(url, {
+        method: "POST",
+        headers: { Authorization: authHeader, "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody,
+      });
+    }
+
+    const formBody = Object.entries({ ...params, ...(bodyParams || {}) })
+      .map(([k, v]) => `${percentEncode(k)}=${percentEncode(v)}`)
+      .join("&");
+    return fetch(url, {
+      method: "POST",
+      headers: { Authorization: authHeader, "Content-Type": "application/x-www-form-urlencoded" },
+      body: formBody,
+    });
+  }
+
+  try {
+    // INIT
+    console.log(`[VIDEO UPLOAD] INIT: ${totalBytes} bytes`);
+    const initResp = await makeUploadRequest({
+      command: "INIT",
+      total_bytes: totalBytes.toString(),
+      media_type: "video/mp4",
+      media_category: "tweet_video",
+    });
+    if (!initResp.ok) {
+      console.error("[VIDEO UPLOAD] INIT failed:", initResp.status, await initResp.text());
+      return null;
+    }
+    const initData = await initResp.json();
+    const mediaId = initData.media_id_string;
+    console.log(`[VIDEO UPLOAD] INIT OK, media_id: ${mediaId}`);
+
+    // APPEND (single chunk for videos < 5MB, chunked for larger)
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+    let segmentIndex = 0;
+    for (let offset = 0; offset < totalBytes; offset += CHUNK_SIZE) {
+      const chunk = videoBase64.slice(
+        Math.floor(offset / 3) * 4,
+        Math.floor(Math.min(offset + CHUNK_SIZE, totalBytes) / 3) * 4
+      );
+      console.log(`[VIDEO UPLOAD] APPEND segment ${segmentIndex}`);
+      const appendResp = await makeUploadRequest({
+        command: "APPEND",
+        media_id: mediaId,
+        segment_index: segmentIndex.toString(),
+        media_data: chunk,
+      });
+      if (!appendResp.ok) {
+        console.error("[VIDEO UPLOAD] APPEND failed:", appendResp.status, await appendResp.text());
+        return null;
+      }
+      segmentIndex++;
+    }
+
+    // FINALIZE
+    console.log("[VIDEO UPLOAD] FINALIZE");
+    const finalResp = await makeUploadRequest({
+      command: "FINALIZE",
+      media_id: mediaId,
+    });
+    if (!finalResp.ok) {
+      console.error("[VIDEO UPLOAD] FINALIZE failed:", finalResp.status, await finalResp.text());
+      return null;
+    }
+    const finalData = await finalResp.json();
+
+    // Check processing status (video needs time)
+    if (finalData.processing_info) {
+      let checkAfter = finalData.processing_info.check_after_secs || 5;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, checkAfter * 1000));
+        const statusNonce = crypto.randomUUID().replace(/-/g, "");
+        const statusTs = Math.floor(Date.now() / 1000).toString();
+        const statusParams: Record<string, string> = {
+          oauth_consumer_key: consumerKey,
+          oauth_nonce: statusNonce,
+          oauth_signature_method: "HMAC-SHA1",
+          oauth_timestamp: statusTs,
+          oauth_token: accessToken,
+          oauth_version: "1.0",
+          command: "STATUS",
+          media_id: mediaId,
+        };
+        const statusSig = await generateOAuthSignature("GET", url, statusParams, consumerSecret, accessTokenSecret);
+        statusParams.oauth_signature = statusSig;
+        const statusAuth = buildOAuthHeader({
+          oauth_consumer_key: consumerKey,
+          oauth_nonce: statusNonce,
+          oauth_signature_method: "HMAC-SHA1",
+          oauth_timestamp: statusTs,
+          oauth_token: accessToken,
+          oauth_version: "1.0",
+          oauth_signature: statusSig,
+        });
+        const statusResp = await fetch(`${url}?command=STATUS&media_id=${mediaId}`, {
+          headers: { Authorization: statusAuth },
+        });
+        if (!statusResp.ok) { console.error("[VIDEO UPLOAD] STATUS check failed"); break; }
+        const statusData = await statusResp.json();
+        const state = statusData.processing_info?.state;
+        console.log(`[VIDEO UPLOAD] Processing: ${state}`);
+        if (state === "succeeded") break;
+        if (state === "failed") {
+          console.error("[VIDEO UPLOAD] Processing failed:", JSON.stringify(statusData.processing_info));
+          return null;
+        }
+        checkAfter = statusData.processing_info?.check_after_secs || 5;
+      }
+    }
+
+    console.log(`[VIDEO UPLOAD] Complete: ${mediaId}`);
+    return mediaId;
+  } catch (e) {
+    console.error("[VIDEO UPLOAD] Error:", e);
+    return null;
+  }
 }
 
 async function postTweetWithMedia(text: string, mediaId: string): Promise<{ success: boolean; tweetId?: string; error?: string }> {
@@ -353,12 +515,14 @@ serve(async (req) => {
       console.log("[MEDIA] Neural Addendum audio stored:", audioPath);
     }
 
-    // ─── STEP 3.5: Merge into video via Shotstack (if both image + audio exist) ───
+    // ─── STEP 3.5: Merge into video via Shotstack (MANDATORY when audio exists) ───
     let videoUrl = "";
+    let videoBase64 = "";
     const SHOTSTACK_API_KEY = Deno.env.get("SHOTSTACK_API_KEY");
     if (audioStoredUrl && SHOTSTACK_API_KEY) {
       try {
         const { data: imgUrlData } = sb.storage.from("media-assets").getPublicUrl(imagePath);
+        console.log("[MEDIA] Calling merge-video with Shotstack...");
         const mergeResp = await fetch(`${supabaseUrl}/functions/v1/merge-video`, {
           method: "POST",
           headers: {
@@ -375,27 +539,61 @@ serve(async (req) => {
           const mergeData = await mergeResp.json();
           videoUrl = mergeData.videoUrl || "";
           console.log("[MEDIA] Video merged:", videoUrl);
+
+          // Download video for Twitter upload
+          if (videoUrl) {
+            const vidResp = await fetch(videoUrl);
+            const vidBuffer = await vidResp.arrayBuffer();
+            videoBase64 = base64Encode(vidBuffer);
+            console.log(`[MEDIA] Video downloaded for upload: ${vidBuffer.byteLength} bytes`);
+          }
         } else {
-          console.error("[MEDIA] Video merge failed:", await mergeResp.text());
+          const errText = await mergeResp.text();
+          console.error("[MEDIA] Video merge failed:", errText);
+          await sb.from("agent_logs").insert({
+            message: `[MEDIA CORE]: ⚠️ Shotstack merge FAILED: ${errText.slice(0, 300)}`,
+          });
         }
       } catch (e) {
         console.error("[MEDIA] Video merge error:", e);
+        await sb.from("agent_logs").insert({
+          message: `[MEDIA CORE]: ⚠️ Shotstack error: ${e instanceof Error ? e.message : "Unknown"}`,
+        });
       }
     }
 
     // ─── STEP 4: Upload media to Twitter and post ───
-    // If video exists, post text-only (Twitter v1.1 video upload requires chunked init/append/finalize)
-    // For now: upload image, post with image. Video URL stored for reference.
+    // PRIORITY: Video MP4 > Image JPEG > Text-only
     console.log("[MEDIA] Uploading to Twitter...");
-    const mediaId = await uploadMediaToTwitter(imgBase64);
+    let mediaId: string | null = null;
+
+    if (videoBase64) {
+      // Upload MP4 video via chunked upload
+      console.log("[MEDIA] Uploading VIDEO to Twitter (chunked)...");
+      mediaId = await uploadMediaToTwitter(videoBase64, "video");
+      if (mediaId) {
+        console.log("[MEDIA] Video uploaded to Twitter:", mediaId);
+      } else {
+        console.warn("[MEDIA] Video upload failed, falling back to image...");
+        await sb.from("agent_logs").insert({
+          message: `[MEDIA CORE]: ⚠️ Twitter video upload failed, falling back to image`,
+        });
+      }
+    }
+
+    // Fallback to image if video upload failed or no video
+    if (!mediaId) {
+      console.log("[MEDIA] Uploading IMAGE to Twitter...");
+      mediaId = await uploadMediaToTwitter(imgBase64, "image");
+    }
 
     let tweetResult: { success: boolean; tweetId?: string; error?: string };
 
     if (mediaId) {
       tweetResult = await postTweetWithMedia(tweetText.slice(0, 280), mediaId);
     } else {
-      // Fallback: post text-only via post-tweet function
-      console.warn("[MEDIA] Media upload failed, falling back to text-only post");
+      // Last resort: text-only
+      console.warn("[MEDIA] All media uploads failed, falling back to text-only post");
       const fallbackResp = await sb.functions.invoke("post-tweet", {
         body: { directPost: tweetText.slice(0, 280) },
       });
@@ -417,8 +615,9 @@ serve(async (req) => {
       audio_url: audioStoredUrl || null,
     });
 
+    const mediaType = videoBase64 && mediaId ? "VIDEO" : "IMAGE";
     const logMsg = tweetResult.success
-      ? `[MEDIA CORE]: ✅ ${mode === "whale_tribute" ? "Whale Tribute" : "Neural Intercept"} deployed to X. ID: ${tweetResult.tweetId || "unknown"}${videoUrl ? ` | Video: ${videoUrl}` : ""}`
+      ? `[MEDIA CORE]: ✅ Neural Intercept (${mediaType}) deployed to X. ID: ${tweetResult.tweetId || "unknown"}${videoUrl ? ` | Video: ${videoUrl}` : ""}`
       : `[MEDIA CORE]: ❌ ${mode} post failed: ${tweetResult.error}`;
     await sb.from("agent_logs").insert({ message: logMsg });
 
@@ -429,6 +628,7 @@ serve(async (req) => {
       videoUrl: videoUrl || null,
       audioUrl: audioStoredUrl || null,
       mode,
+      mediaType,
       content: tweetText,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
