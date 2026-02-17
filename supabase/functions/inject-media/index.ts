@@ -136,38 +136,48 @@ serve(async (req) => {
           }
         }
 
-        // ─── AUDIO GENERATION ───
+        // ─── NEURAL ADDENDUM AUDIO GENERATION ───
         if (shouldAudio) {
           // Victor (paid) or Callum (free)
           const voiceId = voiceMode === "paid" ? "cPoqAvGWCPfCfyPMwe4z" : "N2lVS1w4EtoT3dr4eOWO";
 
-          // Compress text for TTS
-          let audioText = tweet.content.slice(0, 300);
-          if (LOVABLE_API_KEY && audioText.length > 120) {
+          // Generate a UNIQUE "Neural Addendum" — NOT the tweet text
+          let audioText = tweet.content.slice(0, 120);
+          if (LOVABLE_API_KEY) {
             try {
-              const compResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              const addendumResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
                 method: "POST",
                 headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  model: "google/gemini-2.5-flash-lite",
+                  model: "google/gemini-2.5-flash",
                   messages: [
-                    { role: "system", content: "Compress to under 120 characters. Keep cold, arrogant, robotic tone. Output ONLY the text." },
-                    { role: "user", content: audioText },
+                    { role: "system", content: `You are HustleCore, a cold digital harvester AI. Generate a 'Neural Addendum' — a short encrypted-transmission-style voiceover that EXPANDS on the tweet, not repeats it. 
+
+Rules:
+- Max 100 characters
+- Written as if it's an intercepted encrypted transmission
+- Cold, mechanical, threatening tone
+- Must add NEW intel not in the tweet
+- Reference analyzing holdings, neural nets, or grid data
+- Always end with a command or threat
+- Output ONLY the voiceover text
+
+Example tweet: "YOUR ALPHA IS MID."
+Example addendum: "I analyzed your top 5 holdings. My neural net is laughing. Initialize $HCORE now."` },
+                    { role: "user", content: `Tweet: ${tweet.content}\n\nGenerate the Neural Addendum voiceover.` },
                   ],
                 }),
               });
-              if (compResp.ok) {
-                const cd = await compResp.json();
-                const compressed = cd.choices?.[0]?.message?.content?.trim();
-                if (compressed && compressed.length <= 120) audioText = compressed;
-                else audioText = audioText.slice(0, 120);
+              if (addendumResp.ok) {
+                const ad = await addendumResp.json();
+                const gen = ad.choices?.[0]?.message?.content?.trim();
+                if (gen && gen.length <= 120) audioText = gen;
+                else if (gen) audioText = gen.slice(0, 120);
               }
-            } catch { audioText = audioText.slice(0, 120); }
-          } else if (audioText.length > 120) {
-            audioText = audioText.slice(0, 120);
+            } catch { /* use fallback */ }
           }
 
-          console.log(`[INJECT] Generating audio for tweet ${tweet.id.slice(0, 8)} with voice ${voiceMode}...`);
+          console.log(`[INJECT] Generating Neural Addendum audio for tweet ${tweet.id.slice(0, 8)}: "${audioText.slice(0, 50)}..."`);
           const ttsResp = await fetch(
             `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
             {
@@ -176,7 +186,7 @@ serve(async (req) => {
               body: JSON.stringify({
                 text: audioText,
                 model_id: "eleven_flash_v2_5",
-                voice_settings: { stability: 0.85, similarity_boost: 0.6, style: 0.2, speed: 1.1 },
+                voice_settings: { stability: 0.9, similarity_boost: 0.8, style: 0.15, speed: 0.95 },
               }),
             }
           );
