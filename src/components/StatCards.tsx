@@ -19,10 +19,10 @@ const StatCards = ({ totalHustled, energy, agentState, strategy, onVotePhase2 }:
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4">
       {/* Total Hustled */}
       <motion.div
-        className="glass rounded-lg p-6 glow-cyan"
+        className="md:col-span-1 lg:col-span-4 glass rounded-lg p-6 glow-cyan"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
@@ -63,7 +63,7 @@ const StatCards = ({ totalHustled, energy, agentState, strategy, onVotePhase2 }:
 
       {/* Energy Level */}
       <motion.div
-        className="glass rounded-lg p-6"
+        className="md:col-span-1 lg:col-span-4 glass rounded-lg p-6"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
@@ -98,7 +98,7 @@ const StatCards = ({ totalHustled, energy, agentState, strategy, onVotePhase2 }:
 
       {/* Current Strategy */}
       <motion.div
-        className="glass rounded-lg p-6"
+        className="md:col-span-2 lg:col-span-4 glass rounded-lg p-6"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}

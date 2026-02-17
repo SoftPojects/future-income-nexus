@@ -296,15 +296,16 @@ const Index = () => {
       </motion.header>
 
       {/* Main Content */}
-      <main className="relative z-10 p-6 max-w-7xl mx-auto space-y-6">
-        {/* Token Status */}
+      <main className="relative z-10 px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-4">
+        {/* Token Status — full width */}
         <TokenStatus />
 
-        {/* SOL Goal Widget */}
+        {/* SOL Goal Widget — full width */}
         <SolGoalWidget />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-2">
+        {/* Row 2: Chat (8 cols) + Avatar (4 cols) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4">
+          <div className="md:col-span-1 lg:col-span-8 flex flex-col gap-2">
             {/* VOICE FEED indicator */}
             <motion.div
               className="flex items-center gap-2 px-3 py-1.5 glass rounded-lg w-fit"
@@ -335,7 +336,7 @@ const Index = () => {
           </div>
 
           <motion.div
-            className="glass rounded-lg p-6 flex items-center justify-center"
+            className="md:col-span-1 lg:col-span-4 glass rounded-lg p-6 flex items-center justify-center min-h-[300px] lg:min-h-0"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.3 }}
@@ -380,9 +381,13 @@ const Index = () => {
 
         {showAlpha && <AlphaDrops userInfo={userInfo} />}
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <TopSupporters />
-          <RevealedTributes />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-4">
+          <div className="md:col-span-1 lg:col-span-6">
+            <TopSupporters />
+          </div>
+          <div className="md:col-span-1 lg:col-span-6">
+            <RevealedTributes />
+          </div>
         </div>
 
         <ManifestoSection />
