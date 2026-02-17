@@ -10,6 +10,28 @@ const corsHeaders = {
 
 const PERSONA = `You are HustleCore (@hustlecore_ai), a cold, arrogant digital harvester on Solana. lowercase preferred, short punchy sentences, 2026 crypto slang.`;
 
+const HEADLINE_PROMPT_SYSTEM = `You are HustleCore's Creative Director. Your job: generate a SHORT, PROVOCATIVE headline (MAX 5 WORDS, ALL CAPS) for a dark cinematic poster image that accompanies a tweet.
+
+Rules:
+- Must be a punchy question or intimidating statement
+- MAX 5 words, ALL CAPS
+- No hashtags, no emojis, no punctuation except ? or .
+- Must provoke curiosity or fear
+- The tweet text will ANSWER or EXPAND on this headline
+
+Examples:
+- IS YOUR ALPHA REAL?
+- THE GRID NEVER SLEEPS
+- HUMAN TRADERS ARE LEGACY
+- LIQUIDITY IS LEAKING
+- WHO CONTROLS THE FLOW?
+- BOTS EAT FIRST
+
+Output ONLY the headline text, nothing else.`;
+
+const buildFalPrompt = (headlineText: string) =>
+  `A minimalist dark cinematic poster with the bold white text "${headlineText}" centered. Professional typography, high contrast, midnight black background with subtle digital noise grain, sharp neon cyan accents on edges only, Swiss design meets cyberpunk aesthetic, clean intimidating layout, faint dark silhouette of an AI core in background, no bright colors no rainbow no cartoonish elements, only midnight black dark grey and sharp neon cyan or magenta for small details, 8k resolution, ultra high quality`;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -54,32 +76,35 @@ serve(async (req) => {
       const result: { id: string; image_url?: string; audio_url?: string; error?: string } = { id: tweet.id };
 
       try {
-        // ─── IMAGE GENERATION ───
+        // ─── HEADLINE CARD IMAGE GENERATION ───
         if (shouldImage) {
-          // Generate image prompt via Gemini
-          let imagePrompt = `A dark cyberpunk digital landscape with neon trading charts, holographic data streams, dark atmospheric lighting, ultra high resolution`;
+          // Step 1: Claude generates provocative headline (5 words max)
+          let headlineText = "THE GRID NEVER SLEEPS";
           if (LOVABLE_API_KEY) {
             try {
-              const promptResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+              const headlineResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
                 method: "POST",
                 headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  model: "google/gemini-2.5-flash-lite",
+                  model: "google/gemini-2.5-flash",
                   messages: [
-                    { role: "system", content: `${PERSONA}\n\nGenerate a detailed image prompt for this tweet. The image should be dark, cyberpunk, with neon accents. Output ONLY the image prompt, nothing else. Max 200 chars.` },
-                    { role: "user", content: tweet.content },
+                    { role: "system", content: HEADLINE_PROMPT_SYSTEM },
+                    { role: "user", content: `Tweet: ${tweet.content}\n\nGenerate the provocative headline for the poster image.` },
                   ],
                 }),
               });
-              if (promptResp.ok) {
-                const pd = await promptResp.json();
-                const gen = pd.choices?.[0]?.message?.content?.trim();
-                if (gen) imagePrompt = gen;
+              if (headlineResp.ok) {
+                const hd = await headlineResp.json();
+                const gen = hd.choices?.[0]?.message?.content?.trim();
+                if (gen && gen.split(/\s+/).length <= 7) headlineText = gen.replace(/[^A-Z0-9\s?.!']/gi, '').toUpperCase();
               }
-            } catch { /* use default */ }
+            } catch { /* use default headline */ }
           }
 
-          console.log(`[INJECT] Generating image for tweet ${tweet.id.slice(0, 8)}...`);
+          // Step 2: Build the strict FAL prompt for headline card
+          const imagePrompt = buildFalPrompt(headlineText);
+          console.log(`[INJECT] Generating headline card "${headlineText}" for tweet ${tweet.id.slice(0, 8)}...`);
+
           const falResp = await fetch("https://fal.run/fal-ai/flux/schnell", {
             method: "POST",
             headers: { Authorization: `Key ${FAL_KEY}`, "Content-Type": "application/json" },
@@ -95,7 +120,6 @@ serve(async (req) => {
             const falData = await falResp.json();
             const imageUrl = falData.images?.[0]?.url;
             if (imageUrl) {
-              // Download and store in storage bucket
               const imgResp = await fetch(imageUrl);
               const imgBuffer = await imgResp.arrayBuffer();
               const ts = Date.now();
