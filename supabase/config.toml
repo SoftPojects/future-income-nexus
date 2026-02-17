@@ -47,3 +47,6 @@ verify_jwt = false
 
 [functions.tts-speak]
 verify_jwt = false
+
+[functions.merge-video]
+verify_jwt = false

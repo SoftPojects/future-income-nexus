@@ -7,6 +7,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// Production Shotstack API endpoint
+const SHOTSTACK_API_URL = "https://api.shotstack.io/v1";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -19,37 +22,38 @@ serve(async (req) => {
     const sb = createClient(supabaseUrl, serviceKey);
 
     const body = await req.json().catch(() => ({}));
-    const { imageUrl, audioUrl, tweetId, headlineText } = body;
+    const { imageUrl, audioUrl, tweetId } = body;
 
     if (!imageUrl) throw new Error("imageUrl required");
     if (!audioUrl) throw new Error("audioUrl required");
 
-    console.log(`[VIDEO] Merging video for tweet ${tweetId || "unknown"}...`);
+    console.log(`[VIDEO] Merging Neural Intercept for tweet ${tweetId || "unknown"}...`);
+    console.log(`[VIDEO] Image: ${imageUrl}`);
+    console.log(`[VIDEO] Audio: ${audioUrl}`);
 
-    // Build Shotstack timeline: image background + audio + waveform overlay
+    // Shotstack timeline: Image fills 1024x1024, neon audiogram bar at bottom
     const timeline = {
-      soundtrack: {
-        src: audioUrl,
-        effect: "fadeOut",
-      },
       background: "#000000",
       tracks: [
         {
-          // Neon cyan audiogram waveform overlay
+          // Track 1 (top): Neon cyan pulsating waveform bar overlay at bottom
           clips: [
             {
               asset: {
-                type: "audio",
-                src: audioUrl,
-                effect: "fadeOut",
+                type: "html",
+                html: `<div style="width:1024px;height:80px;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);"><div style="width:85%;height:6px;background:linear-gradient(90deg,transparent 0%,#00FFFF 15%,#00E5FF 30%,#FF00FF 50%,#00E5FF 70%,#00FFFF 85%,transparent 100%);border-radius:3px;box-shadow:0 0 15px #00FFFF,0 0 30px rgba(0,255,255,0.5),0 0 60px rgba(0,255,255,0.2);"></div></div>`,
+                width: 1024,
+                height: 80,
               },
               start: 0,
               length: "auto",
+              position: "bottom",
+              offset: { y: 0.02 },
             },
           ],
         },
         {
-          // Main headline card image
+          // Track 2: Main headline card image — fills entire frame
           clips: [
             {
               asset: {
@@ -59,7 +63,7 @@ serve(async (req) => {
               start: 0,
               length: "auto",
               fit: "cover",
-              effect: "zoomIn",
+              effect: "zoomInSlow",
               transition: {
                 in: "fade",
                 out: "fade",
@@ -67,37 +71,26 @@ serve(async (req) => {
             },
           ],
         },
-        {
-          // Pulsating neon waveform bar at bottom
-          clips: [
-            {
-              asset: {
-                type: "html",
-                html: `<div style="width:100%;height:60px;display:flex;align-items:center;justify-content:center;"><div style="width:80%;height:4px;background:linear-gradient(90deg,transparent,#00FFFF,#FF00FF,#00FFFF,transparent);border-radius:2px;box-shadow:0 0 20px #00FFFF,0 0 40px #00FFFF;animation:pulse 1s ease-in-out infinite;"></div></div>`,
-                width: 1024,
-                height: 60,
-              },
-              start: 0,
-              length: "auto",
-              position: "bottom",
-              offset: {
-                y: -0.05,
-              },
-            },
-          ],
-        },
       ],
+      soundtrack: {
+        src: audioUrl,
+        effect: "fadeOut",
+      },
     };
 
     const output = {
       format: "mp4",
-      resolution: "hd",
-      aspectRatio: "16:9",
+      resolution: "sd",
+      size: {
+        width: 1024,
+        height: 1024,
+      },
       fps: 25,
     };
 
-    // Submit render to Shotstack
-    const renderResp = await fetch("https://api.shotstack.io/edit/v1/render", {
+    // Submit render to Shotstack PRODUCTION
+    console.log(`[VIDEO] Submitting to Shotstack Production...`);
+    const renderResp = await fetch(`${SHOTSTACK_API_URL}/render`, {
       method: "POST",
       headers: {
         "x-api-key": SHOTSTACK_API_KEY,
@@ -108,7 +101,14 @@ serve(async (req) => {
 
     if (!renderResp.ok) {
       const errText = await renderResp.text();
-      throw new Error(`Shotstack render submit failed: ${renderResp.status} ${errText}`);
+      const status = renderResp.status;
+      // Log specific errors for admin monitoring
+      if (status === 403 || status === 402) {
+        await sb.from("agent_logs").insert({
+          message: `[VIDEO MERGE]: ⚠️ Shotstack ${status === 403 ? "access denied" : "credit limit"} error. Check API key or billing. Details: ${errText.slice(0, 200)}`,
+        });
+      }
+      throw new Error(`Shotstack render failed: ${status} ${errText}`);
     }
 
     const renderData = await renderResp.json();
@@ -116,13 +116,16 @@ serve(async (req) => {
     if (!renderId) throw new Error("No render ID returned from Shotstack");
 
     console.log(`[VIDEO] Shotstack render submitted: ${renderId}`);
+    await sb.from("agent_logs").insert({
+      message: `[VIDEO MERGE]: Render submitted to Shotstack Production. ID: ${renderId}`,
+    });
 
-    // Poll for completion (max 120s)
+    // Poll for completion (max 180s at 5s intervals)
     let videoUrl: string | null = null;
-    for (let attempt = 0; attempt < 24; attempt++) {
-      await new Promise(r => setTimeout(r, 5000)); // 5s intervals
+    for (let attempt = 0; attempt < 36; attempt++) {
+      await new Promise(r => setTimeout(r, 5000));
 
-      const statusResp = await fetch(`https://api.shotstack.io/edit/v1/render/${renderId}`, {
+      const statusResp = await fetch(`${SHOTSTACK_API_URL}/render/${renderId}`, {
         headers: { "x-api-key": SHOTSTACK_API_KEY },
       });
 
@@ -130,17 +133,21 @@ serve(async (req) => {
 
       const statusData = await statusResp.json();
       const status = statusData.response?.status;
+      console.log(`[VIDEO] Poll ${attempt + 1}: status=${status}`);
 
       if (status === "done") {
         videoUrl = statusData.response?.url;
         break;
       } else if (status === "failed") {
-        throw new Error(`Shotstack render failed: ${JSON.stringify(statusData.response?.error)}`);
+        const errDetail = JSON.stringify(statusData.response?.error || statusData.response);
+        await sb.from("agent_logs").insert({
+          message: `[VIDEO MERGE]: ❌ Shotstack render FAILED. ID: ${renderId}. Error: ${errDetail.slice(0, 300)}`,
+        });
+        throw new Error(`Shotstack render failed: ${errDetail}`);
       }
-      // else: queued, fetching, rendering — keep polling
     }
 
-    if (!videoUrl) throw new Error("Shotstack render timed out after 120s");
+    if (!videoUrl) throw new Error("Shotstack render timed out after 180s");
 
     console.log(`[VIDEO] Render complete: ${videoUrl}`);
 
@@ -148,7 +155,7 @@ serve(async (req) => {
     const videoResp = await fetch(videoUrl);
     const videoBuffer = await videoResp.arrayBuffer();
     const ts = Date.now();
-    const videoPath = `videos/${ts}-${(tweetId || "unknown").slice(0, 8)}.mp4`;
+    const videoPath = `videos/${ts}.mp4`;
 
     await sb.storage.from("media-assets").upload(videoPath, new Uint8Array(videoBuffer), {
       contentType: "video/mp4",
@@ -158,13 +165,8 @@ serve(async (req) => {
     const { data: urlData } = sb.storage.from("media-assets").getPublicUrl(videoPath);
     const storedVideoUrl = urlData.publicUrl;
 
-    // Update tweet_queue if tweetId provided
-    if (tweetId) {
-      await sb.from("tweet_queue").update({ video_url: storedVideoUrl }).eq("id", tweetId);
-    }
-
     await sb.from("agent_logs").insert({
-      message: `[VIDEO MERGE]: Neural Intercept video rendered. ID: ${renderId}`,
+      message: `[VIDEO MERGE]: ✅ Neural Intercept rendered. ID: ${renderId}. Stored: ${videoPath}`,
     });
 
     return new Response(JSON.stringify({
@@ -176,6 +178,14 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("merge-video error:", e);
+
+    try {
+      const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+      await sb.from("agent_logs").insert({
+        message: `[VIDEO MERGE]: ❌ Error: ${e instanceof Error ? e.message : "Unknown"}`,
+      });
+    } catch {}
+
     return new Response(
       JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
