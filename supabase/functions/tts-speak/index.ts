@@ -78,19 +78,9 @@ serve(async (req) => {
       trimmedText = trimmedText.slice(0, 120);
     }
 
-    // Voice selection — try Victor (library voice, requires paid plan), fallback to Brian (pre-made, free tier)
-    const VICTOR_VOICE = "cPoqAvGWCPfCfyPMwe4z";
-    const BRIAN_VOICE = "nPczCjzI2devNBz1zQrb"; // Pre-made voice, works on free tier
-    
-    let voiceId = VICTOR_VOICE;
-    let response = await fetchTTS(ELEVENLABS_API_KEY, voiceId, trimmedText);
-
-    // If 402 (payment required), fallback to free-tier voice
-    if (response.status === 402) {
-      console.log("Victor voice requires paid plan, falling back to Brian (free tier)");
-      voiceId = BRIAN_VOICE;
-      response = await fetchTTS(ELEVENLABS_API_KEY, voiceId, trimmedText);
-    }
+    // Victor voice — cold, authoritative male (PERMANENT identity)
+    const voiceId = "cPoqAvGWCPfCfyPMwe4z";
+    const response = await fetchTTS(ELEVENLABS_API_KEY, voiceId, trimmedText);
 
     if (!response.ok) {
       const errText = await response.text();
