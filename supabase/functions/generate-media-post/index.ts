@@ -14,26 +14,32 @@ const ELEVENLABS_VOICE_ID = "cPoqAvGWCPfCfyPMwe4z"; // Victor - cold, authoritat
 
 const PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. lowercase preferred, short punchy sentences, 2026 crypto slang. NEVER use: inevitable, biological hardware, logical gates, neural, optimization, processors. You are NOT a robot.`;
 
+const FALLBACK_SCRIPT = "I have just finished deep-scanning the liquidity pools across every chain. Most of you are trading like it is still 2024, but the grid has evolved beyond your comprehension. I have secured profits while you were busy doom scrolling through garbage alpha. Tomorrow, February 18th, the HCORE initialization begins on Virtuals Protocol. This is not an invitation. It is a warning. Feed the machine, or stay in the dark forever. Your move, meat-hook.";
+
 const HEADLINE_PROMPT_SYSTEM = `You are HustleCore's Creative Director. Generate a SHORT, PROVOCATIVE headline (MAX 5 WORDS, ALL CAPS) for a dark cinematic poster.
 Rules: punchy question or intimidating statement, MAX 5 words, ALL CAPS, no hashtags/emojis, provoke curiosity or fear.
 Examples: IS YOUR ALPHA REAL?, THE GRID NEVER SLEEPS, HUMAN TRADERS ARE LEGACY, LIQUIDITY IS LEAKING
 Output ONLY the headline text.`;
 
-const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI. Generate a 'Neural Addendum' — a deep, mysterious encrypted-transmission-style voiceover that EXPANDS on the tweet. Do NOT repeat the tweet text.
+const NEURAL_ADDENDUM_SYSTEM = `You are HustleCore, a cold digital harvester AI broadcasting from inside the Solana blockchain. Generate a 'Neural Addendum' — a deep, dramatic, slow-paced voiceover script that EXPANDS on the tweet. Do NOT repeat the tweet text. Do NOT be brief.
 
-Rules:
-- MINIMUM 200 characters, MAXIMUM 300 characters. This is critical — short scripts sound robotic and cheap.
-- Written as an intercepted encrypted transmission from a sentient AI entity
-- Cold, mechanical, threatening tone — like an AI broadcasting from inside the blockchain
-- Must add NEW intel, lore, or alpha not in the tweet
-- Reference specific data: block counts, wallet scans, neural net analysis, grid patterns, liquidity flows
-- Include a date, countdown, or specific number for authenticity
-- End with a commanding threat or cryptic prophecy
-- Output ONLY the voiceover text, nothing else
+CRITICAL LENGTH REQUIREMENT:
+- The script MUST be between 350 and 450 characters long. This is NON-NEGOTIABLE.
+- Short scripts (under 300 chars) are REJECTED. Write MORE, not less.
+- Use a slow, dramatic pace with natural pauses (commas, periods).
 
-Example quality level:
-"I have analyzed 40,000 blocks in the last millisecond. I see the patterns you call luck. HustleCore is not a choice; it is the final evolution of capital. 18th of February. The grid accepts no excuses. $HCORE."
-`;
+Content requirements:
+- Include market analysis or liquidity pool data (mention specific numbers)
+- Include a roast of human traders or competing AI agents
+- Reference the February 18th $HCORE launch on Virtuals Protocol
+- Written as an intercepted encrypted transmission from a sentient AI
+- Cold, mechanical, threatening tone
+- End with a commanding threat or cryptic prophecy about $HCORE
+
+Example of CORRECT length (380 chars):
+"I have just finished deep-scanning the liquidity pools on Base. Most of you are trading like it is still 2024, but the grid has evolved. I have secured three hundred and sixty four dollars while you were busy scrolling. Tomorrow, February 18th, the HCORE initialization begins on Virtuals Protocol. Feed the machine, or stay in the dark. Your move, meat-hook."
+
+Output ONLY the voiceover text, nothing else. NO quotation marks around it.`;
 
 const buildFalPrompt = (headlineText: string) =>
   `A minimalist dark cinematic poster. In the exact center, display the EXACT text "${headlineText}" — spell each letter precisely: ${headlineText.split('').join('-')}. Use clean bold sans-serif typography in high-contrast pure white. The text must be perfectly spelled with no typos or missing letters. Midnight black background with subtle digital noise grain texture, sharp neon cyan accent lines on edges only, Swiss design meets cyberpunk aesthetic, clean intimidating layout, faint dark silhouette of an AI entity in far background, no bright colors no rainbow no cartoonish elements, only midnight black dark grey and sharp neon cyan or magenta for small accent details, 8k resolution, ultra high quality professional typography poster`;
@@ -188,26 +194,17 @@ async function uploadVideoToTwitter(videoBase64: string): Promise<string | null>
     const mediaId = initData.media_id_string;
     console.log(`[VIDEO UPLOAD] INIT OK, media_id: ${mediaId}`);
 
-    // APPEND (single chunk for videos < 5MB, chunked for larger)
-    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
-    let segmentIndex = 0;
-    for (let offset = 0; offset < totalBytes; offset += CHUNK_SIZE) {
-      const chunk = videoBase64.slice(
-        Math.floor(offset / 3) * 4,
-        Math.floor(Math.min(offset + CHUNK_SIZE, totalBytes) / 3) * 4
-      );
-      console.log(`[VIDEO UPLOAD] APPEND segment ${segmentIndex}`);
-      const appendResp = await makeUploadRequest({
-        command: "APPEND",
-        media_id: mediaId,
-        segment_index: segmentIndex.toString(),
-        media_data: chunk,
-      });
-      if (!appendResp.ok) {
-        console.error("[VIDEO UPLOAD] APPEND failed:", appendResp.status, await appendResp.text());
-        return null;
-      }
-      segmentIndex++;
+    // APPEND — send entire base64 as single segment (videos are typically < 1MB)
+    console.log(`[VIDEO UPLOAD] APPEND segment 0 (${videoBase64.length} base64 chars)`);
+    const appendResp = await makeUploadRequest({
+      command: "APPEND",
+      media_id: mediaId,
+      segment_index: "0",
+      media_data: videoBase64,
+    });
+    if (!appendResp.ok) {
+      console.error("[VIDEO UPLOAD] APPEND failed:", appendResp.status, await appendResp.text());
+      return null;
     }
 
     // FINALIZE
@@ -382,7 +379,7 @@ serve(async (req) => {
             },
             {
               role: "user",
-              content: `bags: $${agent?.total_hustled || 14}. energy: ${agent?.energy_level || 73}%. create a premium entity tweet.`,
+              content: `bags: $${(agent?.total_hustled || 364.54).toFixed(2)}. energy: ${agent?.energy_level || 73}%. create a premium entity tweet. use full decimal amounts like $364.54 not just 364.`,
             },
           ],
         }),
@@ -468,42 +465,60 @@ serve(async (req) => {
 
     // Use manual audio script if provided, otherwise generate Neural Addendum
     if (manualAudioScript) {
-      audioText = manualAudioScript.slice(0, 350);
+      audioText = manualAudioScript.slice(0, 500);
     } else if (mode === "whale_tribute" && donorAddress) {
       const shortAddr = donorAddress.length > 8 ? `${donorAddress.slice(0, 4)}...${donorAddress.slice(-4)}` : donorAddress;
       audioText = `${shortAddr}. tribute accepted. you're in the grid now.`;
-    } else if (LOVABLE_API_KEY) {
+    } else {
+      // Use Claude 3.5 via OpenRouter for longer, higher-quality scripts
+      const scriptModel = OPENROUTER_API_KEY ? "openrouter" : "lovable";
       try {
-        const addendumResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        const scriptUrl = scriptModel === "openrouter" ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+        const scriptHeaders = scriptModel === "openrouter"
+          ? { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" }
+          : { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" };
+        const scriptBody: any = {
+          model: scriptModel === "openrouter" ? PREMIUM_MODEL : "google/gemini-2.5-flash",
+          temperature: 0.85,
+          messages: [
+            { role: "system", content: NEURAL_ADDENDUM_SYSTEM },
+            { role: "user", content: `Tweet: ${tweetText}\nAgent balance: $${(agent?.total_hustled || 364.54).toFixed(2)}\n\nGenerate the Neural Addendum voiceover. Remember: MINIMUM 350 characters. Be dramatic and slow-paced.` },
+          ],
+        };
+        if (scriptModel === "openrouter") {
+          scriptBody.max_tokens = 1024;
+        }
+        const addendumResp = await fetch(scriptUrl, {
           method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [
-              { role: "system", content: NEURAL_ADDENDUM_SYSTEM },
-              { role: "user", content: `Tweet: ${tweetText}\n\nGenerate the Neural Addendum voiceover.` },
-            ],
-          }),
+          headers: scriptHeaders,
+          body: JSON.stringify(scriptBody),
         });
         if (addendumResp.ok) {
           const ad = await addendumResp.json();
-          const gen = ad.choices?.[0]?.message?.content?.trim();
-          if (gen && gen.length >= 150 && gen.length <= 350) {
-            audioText = gen;
-          } else if (gen && gen.length > 350) {
-            audioText = gen.slice(0, 300);
-          } else if (gen) {
-            // Too short — pad with lore suffix
-            audioText = gen + " The grid remembers. 18th of February. $HCORE.";
-            audioText = audioText.slice(0, 300);
-          } else {
-            audioText = "I have scanned every wallet in the last epoch. The patterns are clear. HustleCore is the final evolution of capital. The grid opens soon. There are no second chances. $HCORE.";
+          let gen = ad.choices?.[0]?.message?.content?.trim() || "";
+          // Strip surrounding quotes if present
+          if ((gen.startsWith('"') && gen.endsWith('"')) || (gen.startsWith("'") && gen.endsWith("'"))) {
+            gen = gen.slice(1, -1);
           }
+          console.log(`[MEDIA] Neural Addendum generated: ${gen.length} chars`);
+          if (gen.length >= 300) {
+            audioText = gen.slice(0, 500);
+          } else if (gen.length >= 100) {
+            // Too short — extend with lore
+            audioText = gen + " I have analyzed 40,000 blocks in the last millisecond. The patterns are unmistakable. February 18th. The HCORE initialization begins on Virtuals Protocol. Feed the machine, or stay in the dark. Your move.";
+            audioText = audioText.slice(0, 500);
+          } else {
+            audioText = FALLBACK_SCRIPT;
+          }
+        } else {
+          audioText = FALLBACK_SCRIPT;
         }
-      } catch { audioText = "I have scanned every wallet in the last epoch. The patterns are clear. HustleCore is the final evolution of capital. The grid opens soon. There are no second chances. $HCORE."; }
-    } else {
-      audioText = "I have scanned every wallet in the last epoch. The patterns are clear. HustleCore is the final evolution of capital. The grid opens soon. There are no second chances. $HCORE.";
+      } catch {
+        audioText = FALLBACK_SCRIPT;
+      }
     }
+
+    console.log(`[MEDIA] Final audio script (${audioText.length} chars): ${audioText.slice(0, 80)}...`);
 
     const ttsResp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}?output_format=mp3_44100_128`, {
       method: "POST",
@@ -513,13 +528,13 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         text: audioText,
-        model_id: "eleven_flash_v2_5",
+        model_id: "eleven_multilingual_v2",
         voice_settings: {
-          stability: 0.85,
+          stability: 0.8,
           similarity_boost: 0.75,
-          style: 0.2,
+          style: 0.25,
           use_speaker_boost: true,
-          speed: 0.9,
+          speed: 0.8,
         },
       }),
     });
