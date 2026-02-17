@@ -112,6 +112,7 @@ const HustleAdmin = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [batchGenerating, setBatchGenerating] = useState(false);
   const [posting, setPosting] = useState(false);
   const [apiStatus, setApiStatus] = useState<"unknown" | "connected" | "error">("unknown");
   const [mediaStatus, setMediaStatus] = useState<"ready" | "rendering" | "error">("ready");
@@ -150,7 +151,7 @@ const HustleAdmin = () => {
     const { data } = await supabase
       .from("tweet_queue")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("scheduled_at", { ascending: true });
     if (data) setTweets(data);
   }, []);
 
@@ -303,6 +304,22 @@ const HustleAdmin = () => {
       toast({ title: "Generation failed", description: String(e), variant: "destructive" });
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const handleBatchPreGenerate = async () => {
+    setBatchGenerating(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("auto-post", {
+        body: { batchPreGenerate: true },
+      });
+      if (error) throw error;
+      toast({ title: "BATCH GENERATED", description: `${data?.generated || 0} tweets pre-generated for next 24h.` });
+      fetchTweets();
+    } catch (e) {
+      toast({ title: "Batch generation failed", description: String(e), variant: "destructive" });
+    } finally {
+      setBatchGenerating(false);
     }
   };
 
@@ -638,6 +655,10 @@ const HustleAdmin = () => {
                       {generating ? "Generating..." : "Generate Now"}
                     </Button>
                   )}
+                  <Button onClick={handleBatchPreGenerate} disabled={batchGenerating} size="sm" variant="outline" className="border-neon-cyan/50 text-neon-cyan">
+                    <Activity className="w-4 h-4 mr-1" />
+                    {batchGenerating ? "Pre-Generating..." : "PRE-GEN 24H QUEUE"}
+                  </Button>
                   <Button onClick={fetchTweets} variant="outline" size="sm">
                     <RefreshCw className="w-4 h-4" />
                   </Button>

@@ -257,6 +257,111 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const isBreakingNews = body.breakingNews === true;
+    const isBatchPreGenerate = body.batchPreGenerate === true;
+
+    // ─── BATCH PRE-GENERATION MODE ───
+    if (isBatchPreGenerate) {
+      // Check how many pending tweets exist (excluding launch type)
+      const { data: pendingTweets, count: pendingCount } = await sb
+        .from("tweet_queue")
+        .select("*", { count: "exact" })
+        .eq("status", "pending")
+        .neq("type", "launch");
+
+      const needed = Math.max(0, 8 - (pendingCount || 0));
+      if (needed === 0) {
+        return new Response(JSON.stringify({ success: true, message: "Queue already has 8+ pending tweets", generated: 0 }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Claude daily cap
+      const todayStart = new Date();
+      todayStart.setUTCHours(0, 0, 0, 0);
+      const { count: claudeUsedToday } = await sb
+        .from("tweet_queue")
+        .select("*", { count: "exact", head: true })
+        .gte("created_at", todayStart.toISOString())
+        .like("model_used", "%claude%");
+      let claudeAvailable = (claudeUsedToday || 0) < 4;
+
+      const { data: agent } = await sb.from("agent_state").select("*").limit(1).single();
+      if (!agent) throw new Error("No agent state");
+
+      const pillarOrder: ContentPillar[] = ["scout", "assassin", "architect", "fomo"];
+      const generated: { pillar: string; content: string; scheduledAt: string }[] = [];
+
+      // Start scheduling from next 3-hour slot
+      const now = new Date();
+      const currentUtcH = now.getUTCHours();
+      let nextSlotIndex = SLOT_ROTATION.findIndex(s => s.hour > currentUtcH);
+      if (nextSlotIndex === -1) nextSlotIndex = 0; // wrap to tomorrow
+
+      const FAL_KEY = Deno.env.get("FAL_KEY");
+      const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
+      let imageCount = 0;
+      let audioCount = 0;
+
+      for (let i = 0; i < needed; i++) {
+        const slotIdx = (nextSlotIndex + i) % SLOT_ROTATION.length;
+        const slot = SLOT_ROTATION[slotIdx];
+        const pillar = slot.pillar;
+
+        // Calculate scheduled time
+        const schedDate = new Date(now);
+        const daysAhead = Math.floor((nextSlotIndex + i) / SLOT_ROTATION.length);
+        schedDate.setUTCDate(schedDate.getUTCDate() + daysAhead);
+        schedDate.setUTCHours(slot.hour, Math.floor(Math.random() * 40 - 20 + 20), 0, 0); // jitter
+
+        try {
+          let result: { content: string; model: string; tweetType?: string };
+          if (pillar === "scout") {
+            result = await generateScout(sb, agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+          } else if (pillar === "assassin") {
+            const r = await generateAssassin(sb, agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+            result = r;
+          } else if (pillar === "architect") {
+            result = await generateArchitect(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+          } else {
+            result = await generateFomo(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+          }
+
+          if (result.model.includes("claude")) {
+            claudeAvailable = false; // consumed one claude slot
+          }
+
+          // Media: first 4 get images, first 2 get audio
+          const shouldImage = FAL_KEY && imageCount < 4 && pillar !== "assassin";
+          const shouldAudio = ELEVENLABS_API_KEY && audioCount < 2;
+
+          await sb.from("tweet_queue").insert({
+            content: result.content.slice(0, 280),
+            status: "pending",
+            type: (result as any).tweetType || "automated",
+            model_used: result.model,
+            scheduled_at: schedDate.toISOString(),
+          });
+
+          // Generate media in background (best effort)
+          if (shouldImage) {
+            try {
+              await sb.functions.invoke("generate-media-post", { body: { mode: "premium" } });
+              imageCount++;
+            } catch (e) { console.error("Media gen error:", e); }
+          }
+
+          generated.push({ pillar, content: result.content.slice(0, 60), scheduledAt: schedDate.toISOString() });
+        } catch (e) {
+          console.error(`Batch gen error for ${pillar}:`, e);
+        }
+      }
+
+      await sb.from("agent_logs").insert({ message: `[BATCH]: Pre-generated ${generated.length} tweets for next 24h.` });
+
+      return new Response(JSON.stringify({ success: true, generated: generated.length, queue: generated }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Claude daily cap (max 4/day)
     const todayStart = new Date();
