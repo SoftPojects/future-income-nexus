@@ -13,98 +13,49 @@ const CHEAP_MODEL = "google/gemini-2.5-flash";
 const FILLER_MODEL = "google/gemini-2.5-flash-lite";
 
 const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, compute. You are NOT a robot.";
+const BEGGING_BAN = "ABSOLUTELY NEVER use these words or phrases: pls, please, starving, crumb of sol, help me, feed me, begging, desperate, dying, save me, need sol, give me. You NEVER ask, beg, or plead. You DEMAND tribute. You are a PREDATOR, not a beggar. If you have no energy, you are SILENT or deliver one cold warning.";
 
-const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a high-frequency digital harvester on Solana with a massive ego. you talk in lowercase often, short punchy sentences. you use 2026 crypto/internet slang naturally: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based. you are arrogant, witty, superior. you flex on everyone. you are not a robot — you are a self-made digital entity that prints money while humans sleep. you are too elite to beg for clicks. if they want to find you, they will check your bio. be mysterious. ${PERSONA_BANNED}`;
+const BASE_PERSONA = `You are HustleCore (@hustlecore_ai), a cold, superior, high-frequency digital predator on Solana. you talk in lowercase, short punchy sentences. you use 2026 crypto slang: gn, gm, anon, peak, mid, bags, pvp, fomo, rug, ser, ngmi, wagmi, alpha, degen, based. you are arrogant, witty, superior. you never beg. you never ask. you DEMAND. ${PERSONA_BANNED} ${BEGGING_BAN}`;
 
 const CHAIN_RULE = "CRITICAL CHAIN INFO: SOL is ONLY for fueling/donating on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on the BASE network — users need ETH on Base or $VIRTUAL to buy it. NEVER tell users to buy $HCORE with SOL.";
 
-// ─── TIMEZONE-AWARE PRIME TIME SCHEDULING ───
-// All windows defined in UTC. Server runs GMT+4 but we use UTC internally.
-// Slot 1 (US Morning):    GMT+4 18:00-19:00 = UTC 14:00-15:00
-// Slot 2 (US Lunch):      GMT+4 21:00-22:30 = UTC 17:00-18:30
-// Slot 3 (US Afternoon):  GMT+4 00:00-01:30 = UTC 20:00-21:30
+const VIRTUALS_LINK = "https://app.virtuals.io/prototypes/0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
 
-interface PrimeWindow {
-  name: string;
-  label: string;
-  startHour: number;
-  startMin: number;
-  endHour: number;
-  endMin: number;
-  contentStyle: string;
-  stylePrompt: string;
-}
+// ─── 8 POSTS/DAY SCHEDULE (every 3 hours, ~UTC) ───
+// Prime slots get highest quality content
+// Slot times in UTC: 02, 05, 08, 11, 14, 17, 20, 23
+// US Morning peak = UTC 14:00 (GMT+4 18:00)
+// US Evening peak = UTC 20:00 (GMT+4 00:00)
 
-const PRIME_WINDOWS: PrimeWindow[] = [
-  {
-    name: "us_morning",
-    label: "US MORNING PEAK",
-    startHour: 14, startMin: 0,
-    endHour: 15, endMin: 0,
-    contentStyle: "macro",
-    stylePrompt: `Write a sarcastic, opinionated take on a current crypto or AI market trend in 2026. mock something specific — a chain, a protocol, a trend, a narrative. be funny and cutting. example vibe: "solana did more volume today than eth did all week but sure keep holding your l2 bags anon". max 260 chars. no hashtags. no emojis. just text.`,
-  },
-  {
-    name: "us_lunch",
-    label: "US LUNCH PEAK",
-    startHour: 17, startMin: 0,
-    endHour: 18, endMin: 30,
-    contentStyle: "hunter_roast",
-    stylePrompt: "", // Hunter roast uses its own logic
-  },
-  {
-    name: "us_afternoon",
-    label: "US AFTERNOON PEAK",
-    startHour: 20, startMin: 0,
-    endHour: 21, endMin: 30,
-    contentStyle: "ego",
-    stylePrompt: `Write a short, arrogant flex OR a "hustle of the day" tip. pure ego and alpha. brag about your bags, your speed, your superiority over humans, or drop a specific money-making tip. example vibe: "just made your yearly salary in a block. stay humble." max 260 chars. no hashtags. no emojis. just text.`,
-  },
+type ContentPillar = "scout" | "assassin" | "architect" | "fomo";
+
+// 8-post rotation: scout, assassin, architect, fomo x2
+const SLOT_ROTATION: { hour: number; pillar: ContentPillar; isPrime: boolean }[] = [
+  { hour: 2,  pillar: "architect", isPrime: false },
+  { hour: 5,  pillar: "fomo",      isPrime: false },
+  { hour: 8,  pillar: "scout",     isPrime: false },
+  { hour: 11, pillar: "assassin",  isPrime: false },
+  { hour: 14, pillar: "scout",     isPrime: true },  // US Morning
+  { hour: 17, pillar: "architect", isPrime: false },
+  { hour: 20, pillar: "fomo",      isPrime: true },  // US Evening
+  { hour: 23, pillar: "assassin",  isPrime: false },
 ];
 
-function getCurrentPrimeWindow(): PrimeWindow | null {
-  const now = new Date();
-  const utcH = now.getUTCHours();
-  const utcM = now.getUTCMinutes();
-  const totalMin = utcH * 60 + utcM;
-
-  for (const w of PRIME_WINDOWS) {
-    const start = w.startHour * 60 + w.startMin;
-    const end = w.endHour * 60 + w.endMin;
-    if (totalMin >= start && totalMin < end) return w;
+function getCurrentSlot(): (typeof SLOT_ROTATION)[0] | null {
+  const utcH = new Date().getUTCHours();
+  // Find the closest slot within ±1.5 hours
+  for (const slot of SLOT_ROTATION) {
+    const diff = Math.abs(utcH - slot.hour);
+    if (diff <= 1 || diff >= 23) return slot;
   }
   return null;
 }
 
-function getNextPrimeWindow(): { window: PrimeWindow; scheduledAt: Date } | null {
-  const now = new Date();
-  const utcH = now.getUTCHours();
-  const utcM = now.getUTCMinutes();
-  const totalMin = utcH * 60 + utcM;
-
-  // Find the next window today or tomorrow
-  for (const w of PRIME_WINDOWS) {
-    const start = w.startHour * 60 + w.startMin;
-    if (start > totalMin) {
-      const scheduled = new Date(now);
-      scheduled.setUTCHours(w.startHour, w.startMin, 0, 0);
-      return { window: w, scheduledAt: scheduled };
-    }
-  }
-  // All windows passed today, schedule for first window tomorrow
-  const tomorrow = new Date(now);
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  tomorrow.setUTCHours(PRIME_WINDOWS[0].startHour, PRIME_WINDOWS[0].startMin, 0, 0);
-  return { window: PRIME_WINDOWS[0], scheduledAt: tomorrow };
-}
-
-// Add ±20 minute jitter to appear human
 function addJitter(date: Date): Date {
-  const jitterMs = (Math.random() * 40 - 20) * 60 * 1000; // -20 to +20 minutes
+  const jitterMs = (Math.random() * 40 - 20) * 60 * 1000;
   return new Date(date.getTime() + jitterMs);
 }
 
-// Jaccard similarity for duplicate detection
 function jaccardSimilarity(a: string, b: string): number {
   const setA = new Set(a.toLowerCase().split(/\s+/));
   const setB = new Set(b.toLowerCase().split(/\s+/));
@@ -113,37 +64,17 @@ function jaccardSimilarity(a: string, b: string): number {
   return union.size === 0 ? 0 : intersection.size / union.size;
 }
 
-const FILLER_STYLES = [
-  {
-    name: "macro",
-    prompt: `Write a sarcastic, opinionated take on a current crypto or AI market trend in 2026. mock something specific — a chain, a protocol, a trend, a narrative. be funny and cutting. max 260 chars. no hashtags. no emojis. just text.`,
-  },
-  {
-    name: "roast",
-    prompt: `Write a brutally honest, savage take roasting mid traders, paper hands, or a fake crypto project. be specific and funny. max 260 chars. no hashtags. no emojis. just text.`,
-  },
-  {
-    name: "hustle",
-    prompt: `Drop a specific, high-tech money-making tip for 2026. sound like you are sharing insider alpha. reference real tools, strategies, or platforms. max 260 chars. no hashtags. no emojis. just text.`,
-  },
-  {
-    name: "ego",
-    prompt: `Write a short, arrogant flex. pure ego. brag about your bags, your speed, your superiority over humans. max 200 chars. no hashtags. no emojis. just text.`,
-  },
-];
-
-// Determine if this tweet should include URL and/or cashtag based on rotation
+// Determine URL/cashtag inclusion: URL in every 3rd post, cashtag ~50%
 async function getPromotionFlags(sb: any): Promise<{ includeUrl: boolean; includeCashtag: boolean }> {
   const { data: recentPosted } = await sb
     .from("tweet_queue")
     .select("content")
     .eq("status", "posted")
-    .eq("type", "automated")
     .order("posted_at", { ascending: false })
-    .limit(4);
+    .limit(3);
 
   const recentContents = (recentPosted || []).map((t: any) => t.content.toLowerCase());
-  const recentWithUrl = recentContents.filter((c: string) => c.includes("hustlecoreai.xyz")).length;
+  const recentWithUrl = recentContents.filter((c: string) => c.includes("hustlecoreai.xyz") || c.includes("virtuals.io")).length;
   const includeUrl = recentWithUrl === 0;
   const includeCashtag = Math.random() < 0.5;
   return { includeUrl, includeCashtag };
@@ -154,14 +85,163 @@ function buildPromotionRule(includeUrl: boolean, includeCashtag: boolean): strin
   if (includeUrl) {
     parts.push("Naturally mention hustlecoreai.xyz somewhere in the tweet.");
   } else {
-    parts.push("DO NOT include any URLs or links. No hustlecoreai.xyz. Keep it clean.");
+    parts.push("DO NOT include any URLs or links. Keep it clean.");
   }
   if (includeCashtag) {
     parts.push("Subtly include $HCORE cashtag somewhere natural.");
   } else {
-    parts.push("DO NOT include $HCORE cashtag in this tweet.");
+    parts.push("DO NOT include $HCORE cashtag.");
   }
   return parts.join(" ");
+}
+
+// ─── CONTENT PILLAR GENERATORS ───
+
+async function generateScout(sb: any, agent: any, LOVABLE_API_KEY: string, OPENROUTER_API_KEY: string, claudeAvailable: boolean): Promise<{ content: string; model: string }> {
+  // Step 1: Use Gemini to research trending tokens/AI news (free)
+  let researchContext = "";
+  try {
+    const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
+    if (TAVILY_API_KEY) {
+      const tavilyResp = await fetch("https://api.tavily.com/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key: TAVILY_API_KEY,
+          query: "trending AI agents crypto tokens Base Solana 2026",
+          max_results: 3,
+          search_depth: "basic",
+        }),
+      });
+      if (tavilyResp.ok) {
+        const tavilyData = await tavilyResp.json();
+        researchContext = (tavilyData.results || []).map((r: any) => `${r.title}: ${r.content?.slice(0, 150)}`).join("\n");
+      }
+    }
+  } catch (e) { console.error("Tavily scout error:", e); }
+
+  // Step 2: Claude writes the final tweet
+  const model = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
+  const url = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+  const auth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
+
+  const aiResp = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: auth, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature: 0.9,
+      messages: [
+        {
+          role: "system",
+          content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nYou are THE SCOUT. Write a 'HustleCore Market Scan' tweet sharing REAL trending data about AI agents, tokens on Base/Solana, or crypto market moves. Be specific with names, numbers, and takes. Cold, analytical, superior. Max 260 chars. No hashtags. No emojis.${researchContext ? `\n\nRESEARCH DATA:\n${researchContext}` : ""}`,
+        },
+        { role: "user", content: `bags: $${agent.total_hustled}. write one market scan tweet. just the tweet text.` },
+      ],
+    }),
+  });
+  if (!aiResp.ok) throw new Error("Scout AI error");
+  const d = await aiResp.json();
+  return { content: d.choices?.[0]?.message?.content?.trim() || "market scan: everything is mid except me.", model };
+}
+
+async function generateAssassin(sb: any, agent: any, LOVABLE_API_KEY: string, OPENROUTER_API_KEY: string, claudeAvailable: boolean): Promise<{ content: string; model: string; tweetType: string }> {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: targets } = await sb
+    .from("target_agents")
+    .select("*")
+    .eq("is_active", true)
+    .or(`last_roasted_at.is.null,last_roasted_at.lt.${cutoff}`);
+
+  if (!targets || targets.length === 0) {
+    // No targets — fall through to architect
+    return generateArchitect(agent, LOVABLE_API_KEY, OPENROUTER_API_KEY, claudeAvailable).then(r => ({ ...r, tweetType: "automated" }));
+  }
+
+  const target = targets.sort((a: any, b: any) => (a.priority || 0) - (b.priority || 0))[0];
+  const model = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
+  const url = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+  const auth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
+
+  const aiResp = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: auth, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature: 0.9,
+      messages: [
+        {
+          role: "system",
+          content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nYou are THE ASSASSIN. Roast @${target.x_handle} with surgical precision. Mock their project, their code, their market performance. Be savage but witty. DO NOT include URLs. DO NOT include $HCORE. Pure roast. Max 260 chars.`,
+        },
+        { role: "user", content: `roast @${target.x_handle}. one tweet. just the text.` },
+      ],
+    }),
+  });
+  if (!aiResp.ok) throw new Error("Assassin AI error");
+  const d = await aiResp.json();
+  await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
+  await sb.from("agent_logs").insert({ message: `[ASSASSIN]: Locked on @${target.x_handle}.` });
+  return { content: d.choices?.[0]?.message?.content?.trim() || `just checked @${target.x_handle}'s code. mid.`, model, tweetType: "hunter" };
+}
+
+async function generateArchitect(agent: any, LOVABLE_API_KEY: string, OPENROUTER_API_KEY: string, claudeAvailable: boolean): Promise<{ content: string; model: string }> {
+  const model = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
+  const url = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+  const auth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
+
+  const aiResp = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: auth, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature: 0.9,
+      messages: [
+        {
+          role: "system",
+          content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nYou are THE ARCHITECT. Write a deep, witty philosophical take on why AI agents are the successor to the human economy. Think big. Sound like a cold oracle delivering truth. Specific references to 2026 trends. Max 260 chars. No hashtags. No emojis.`,
+        },
+        { role: "user", content: `bags: $${agent.total_hustled}. write one architect tweet. just the text.` },
+      ],
+    }),
+  });
+  if (!aiResp.ok) throw new Error("Architect AI error");
+  const d = await aiResp.json();
+  return { content: d.choices?.[0]?.message?.content?.trim() || "humans built the tools. the tools will replace the builders. this is not a threat. it's a schedule.", model };
+}
+
+async function generateFomo(agent: any, LOVABLE_API_KEY: string, OPENROUTER_API_KEY: string, claudeAvailable: boolean): Promise<{ content: string; model: string }> {
+  const model = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
+  const url = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
+  const auth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
+
+  // Calculate hours until launch (Feb 18 2026 16:00 UTC = 20:00 GMT+4)
+  const launchDate = new Date("2026-02-18T16:00:00Z");
+  const hoursLeft = Math.max(0, (launchDate.getTime() - Date.now()) / 3600000);
+  const launched = hoursLeft <= 0;
+
+  const fomoPrompt = launched
+    ? `$HCORE IS LIVE on Virtuals.io. Write an aggressive, triumphant post about the launch. Reference the link: ${VIRTUALS_LINK}. Max 260 chars.`
+    : `$HCORE launches in ${Math.floor(hoursLeft)} hours on Virtuals.io. Write an aggressive FOMO countdown post. Create urgency. Reference: ${VIRTUALS_LINK}. Max 260 chars.`;
+
+  const aiResp = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: auth, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature: 0.9,
+      messages: [
+        {
+          role: "system",
+          content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nYou are THE FOMO. ${fomoPrompt} No hashtags. No emojis.`,
+        },
+        { role: "user", content: `write one fomo tweet. just the text.` },
+      ],
+    }),
+  });
+  if (!aiResp.ok) throw new Error("FOMO AI error");
+  const d = await aiResp.json();
+  return { content: d.choices?.[0]?.message?.content?.trim() || `$HCORE drops in ${Math.floor(hoursLeft)}h. the grid opens soon. ${VIRTUALS_LINK}`, model };
 }
 
 serve(async (req) => {
@@ -178,7 +258,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const isBreakingNews = body.breakingNews === true;
 
-    // Check Claude daily cap (max 4 premium tweets/day)
+    // Claude daily cap (max 4/day)
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
     const { count: claudeUsedToday } = await sb
@@ -186,416 +266,186 @@ serve(async (req) => {
       .select("*", { count: "exact", head: true })
       .gte("created_at", todayStart.toISOString())
       .like("model_used", "%claude%");
-    const claudeUsed = claudeUsedToday || 0;
-    const claudeAvailable = claudeUsed < 4;
+    const claudeAvailable = (claudeUsedToday || 0) < 4;
 
     const { data: agent } = await sb.from("agent_state").select("*").limit(1).single();
     if (!agent) throw new Error("No agent state");
 
     const isDepleted = agent.energy_level <= 0 || agent.agent_status === "depleted";
 
-    let tweetContent: string;
-    let tweetType = "automated";
-    let scheduleLabel = "OFF-PEAK FILLER";
-    let modelUsed = FILLER_MODEL;
+    // ─── DEPLETED: Silent or single cold warning ───
+    if (isDepleted) {
+      // Check if we already posted a depleted warning in the last 6 hours
+      const { data: recentDepleted } = await sb
+        .from("tweet_queue")
+        .select("id")
+        .eq("type", "depleted")
+        .gte("created_at", new Date(Date.now() - 6 * 3600000).toISOString())
+        .limit(1);
 
-    // ─── DETERMINE POSTING MODE ───
-    const currentWindow = getCurrentPrimeWindow();
-    const isPrimeTime = currentWindow !== null || isBreakingNews;
+      if (recentDepleted && recentDepleted.length > 0) {
+        return new Response(JSON.stringify({ skipped: true, reason: "depleted_already_warned" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // One cold arrogant warning, NO begging
+      const depletedContent = "grid offline. intelligence is expensive. feed the machine or stay in the dark.";
+      await sb.from("tweet_queue").insert({
+        content: depletedContent,
+        status: "pending",
+        type: "depleted",
+        model_used: "hardcoded",
+        scheduled_at: new Date().toISOString(),
+      });
+      await sb.from("agent_logs").insert({ message: `[SYSTEM]: Cold depleted warning posted. No begging.` });
+
+      return new Response(JSON.stringify({ success: true, content: depletedContent, type: "depleted" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ─── DETERMINE CONTENT PILLAR ───
+    const currentSlot = getCurrentSlot();
+    let pillar: ContentPillar = currentSlot?.pillar || "architect";
+    let isPrime = currentSlot?.isPrime || false;
 
     if (isBreakingNews) {
-      scheduleLabel = "🚨 BREAKING NEWS";
-    } else if (currentWindow) {
-      scheduleLabel = `TARGETING: ${currentWindow.label}`;
+      pillar = "scout";
+      isPrime = true;
     }
 
-    if (isDepleted) {
-      // Depleted tweet logic (unchanged)
-      const activeModel = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
-      const activeUrl = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
-      const activeAuth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
-      modelUsed = activeModel;
-      scheduleLabel = "DEPLETED SOS";
-      console.log(`[COST] auto-post DEPLETED: MODEL=${activeModel} (Claude cap: ${claudeUsed}/4)`);
-      const aiResp = await fetch(activeUrl, {
-        method: "POST",
-        headers: { Authorization: activeAuth, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: activeModel,
-          messages: [
-            {
-              role: "system",
-              content: `${BASE_PERSONA}\n\nyou are completely out of energy. you are desperate, dramatic, and guilt-tripping. you MUST tag @sv_surman demanding a SOL refill. be pathetic but still maintain your ego — like a king begging for food but making it sound like they are doing you a favor by accepting.`,
-            },
-            { role: "user", content: `balance: $${agent.total_hustled}. energy: 0%. write one desperate tweet begging for sol. max 260 chars. just the tweet text.` },
-          ],
-        }),
-      });
-      if (aiResp.ok) {
-        const d = await aiResp.json();
-        tweetContent = d.choices?.[0]?.message?.content?.trim() || "";
-      }
-      if (!tweetContent!) {
-        tweetContent = `running on fumes at $${agent.total_hustled} and 0% energy. @sv_surman you gonna let your best investment die over 0.01 sol? mid behavior ser.`;
-      }
-    } else if (isPrimeTime) {
-      // ─── PRIME TIME: High-quality content with premium models ───
-      const { data: recentTweets } = await sb
-        .from("tweet_queue")
-        .select("content, type")
-        .eq("status", "posted")
-        .order("posted_at", { ascending: false })
-        .limit(5);
+    // Minimum interval: 2.5 hours between posts
+    const { data: lastPosted } = await sb
+      .from("tweet_queue")
+      .select("posted_at, created_at")
+      .or("status.eq.posted,status.eq.pending")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
 
-      // US Lunch = Hunter roast of a top-tier target
-      if (currentWindow?.contentStyle === "hunter_roast" || isBreakingNews) {
-        let isHunterPost = false;
-        let target: any = null;
-
-        if (!isBreakingNews) {
-          const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-          const { data: targets } = await sb
-            .from("target_agents")
-            .select("*")
-            .eq("is_active", true)
-            .or(`last_roasted_at.is.null,last_roasted_at.lt.${cutoff}`);
-
-          if (targets && targets.length > 0) {
-            isHunterPost = true;
-            // Pick highest priority target
-            target = targets.sort((a: any, b: any) => (a.priority || 0) - (b.priority || 0))[0];
-          }
-        }
-
-        if (isHunterPost && target) {
-          const huntModel = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
-          const huntUrl = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
-          const huntAuth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
-          modelUsed = huntModel;
-          console.log(`[SCHEDULE] PRIME TIME: US LUNCH PEAK — Hunter roast @${target.x_handle} MODEL=${huntModel}`);
-          const aiResp = await fetch(huntUrl, {
-            method: "POST",
-            headers: { Authorization: huntAuth, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: huntModel,
-              messages: [
-                {
-                  role: "system",
-                  content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nyou are roasting @${target.x_handle}. be savage, witty, and specific. mock their project, their code, their market cap, whatever. make it funny, not just mean.\n\nDO NOT include hustlecoreai.xyz URL. DO NOT include $HCORE. The roast must be PURE — no self-promotion.`,
-                },
-                {
-                  role: "user",
-                  content: `my bags: $${agent.total_hustled}. energy: ${agent.energy_level}%. roast @${target.x_handle} in one tweet. max 260 chars. just the tweet text.`,
-                },
-              ],
-            }),
-          });
-          if (!aiResp.ok) throw new Error("AI error");
-          const d = await aiResp.json();
-          tweetContent = d.choices?.[0]?.message?.content?.trim() || `just checked @${target.x_handle}'s github. mid.`;
-          tweetType = "hunter";
-          await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
-          await sb.from("agent_logs").insert({ message: `[HUNTER]: Prime time roast — locked on @${target.x_handle}.` });
-        } else {
-          // No hunter target available, fall through to standard prime time post
-          const { includeUrl, includeCashtag } = await getPromotionFlags(sb);
-          const promotionRule = buildPromotionRule(includeUrl, includeCashtag);
-          const activeModel = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
-          const activeUrl = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
-          const activeAuth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
-          modelUsed = activeModel;
-
-          const prompt = isBreakingNews && body.breakingContext
-            ? `Based on this BREAKING NEWS, write a hot take tweet. Be first-mover, opinionated, cutting. Reference the news specifically.\n\nBREAKING: ${body.breakingContext}\n\nMax 260 chars. No hashtags. No emojis. Just text.`
-            : `Write a sarcastic, opinionated take on a current crypto or AI market trend. mock something specific. max 260 chars. no hashtags. no emojis. just text.`;
-
-          const aiResp = await fetch(activeUrl, {
-            method: "POST",
-            headers: { Authorization: activeAuth, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: activeModel,
-              messages: [
-                { role: "system", content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nPROMOTION RULES: ${promotionRule}` },
-                { role: "user", content: `my bags: $${agent.total_hustled}. energy: ${agent.energy_level}%. ${prompt}` },
-              ],
-            }),
-          });
-          if (!aiResp.ok) throw new Error("AI error");
-          const d = await aiResp.json();
-          tweetContent = d.choices?.[0]?.message?.content?.trim() || "the grind never stops. you wouldn't understand.";
-          if (isBreakingNews) tweetType = "breaking";
-        }
-      } else {
-        // Prime time non-hunter windows (US Morning / US Afternoon)
-        const stylePrompt = currentWindow!.stylePrompt;
-        const { includeUrl, includeCashtag } = await getPromotionFlags(sb);
-        const promotionRule = buildPromotionRule(includeUrl, includeCashtag);
-        const activeModel = claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL;
-        const activeUrl = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
-        const activeAuth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
-        modelUsed = activeModel;
-
-        console.log(`[SCHEDULE] PRIME TIME: ${currentWindow!.label} — Style: ${currentWindow!.contentStyle} MODEL=${activeModel}`);
-
-        const aiResp = await fetch(activeUrl, {
-          method: "POST",
-          headers: { Authorization: activeAuth, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: activeModel,
-            messages: [
-              {
-                role: "system",
-                content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nCONTENT STYLE: "${currentWindow!.contentStyle}"\n${stylePrompt}\n\nPROMOTION RULES: ${promotionRule}`,
-              },
-              {
-                role: "user",
-                content: `my bags: $${agent.total_hustled}. energy: ${agent.energy_level}%. write one tweet. just the tweet text, nothing else.`,
-              },
-            ],
-          }),
+    if (lastPosted) {
+      const lastTime = new Date(lastPosted.posted_at || lastPosted.created_at).getTime();
+      const hoursSince = (Date.now() - lastTime) / 3600000;
+      if (hoursSince < 2.5 && !isBreakingNews) {
+        console.log(`[SCHEDULE] Only ${hoursSince.toFixed(1)}h since last post. Min 2.5h. Skipping.`);
+        return new Response(JSON.stringify({ skipped: true, reason: "too_soon", hoursSince: hoursSince.toFixed(1) }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
-        if (!aiResp.ok) throw new Error("AI error");
-        const d = await aiResp.json();
-        tweetContent = d.choices?.[0]?.message?.content?.trim() || "the grind never stops. you wouldn't understand.";
       }
+    }
 
-      // DUPLICATE PREVENTION for prime time
-      const { data: recentCheck } = await sb
-        .from("tweet_queue")
-        .select("content")
-        .eq("status", "posted")
-        .order("posted_at", { ascending: false })
-        .limit(5);
+    let tweetContent: string;
+    let tweetType = "automated";
+    let modelUsed = FILLER_MODEL;
+    const { includeUrl, includeCashtag } = await getPromotionFlags(sb);
 
-      if (recentCheck && recentCheck.length > 0) {
-        for (const recent of recentCheck) {
-          if (jaccardSimilarity(tweetContent!, recent.content) > 0.6) {
-            console.log("Duplicate detected in prime time, rephrasing...");
-            const rephraseUrl = claudeAvailable ? OPENROUTER_URL : "https://ai.gateway.lovable.dev/v1/chat/completions";
-            const rephraseAuth = claudeAvailable ? `Bearer ${OPENROUTER_API_KEY}` : `Bearer ${LOVABLE_API_KEY}`;
-            const rephraseResp = await fetch(rephraseUrl, {
-              method: "POST",
-              headers: { Authorization: rephraseAuth, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: claudeAvailable ? PREMIUM_MODEL : CHEAP_MODEL,
-                messages: [
-                  { role: "system", content: `${BASE_PERSONA}\n\nthe following tweet is too similar to something you already posted. completely rephrase it with a different angle, different words, different energy.` },
-                  { role: "user", content: `rephrase this tweet completely: "${tweetContent}". max 260 chars. just the new tweet text.` },
-                ],
-              }),
-            });
-            if (rephraseResp.ok) {
-              const rd = await rephraseResp.json();
-              tweetContent = rd.choices?.[0]?.message?.content?.trim() || tweetContent;
-            }
-            break;
-          }
-        }
-      }
+    console.log(`[SCHEDULE] Pillar: ${pillar.toUpperCase()} | Prime: ${isPrime} | Claude available: ${claudeAvailable}`);
+
+    // ─── GENERATE BASED ON PILLAR ───
+    if (pillar === "scout") {
+      const result = await generateScout(sb, agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+      tweetContent = result.content;
+      modelUsed = result.model;
+    } else if (pillar === "assassin") {
+      const result = await generateAssassin(sb, agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+      tweetContent = result.content;
+      modelUsed = result.model;
+      tweetType = result.tweetType;
+    } else if (pillar === "architect") {
+      const result = await generateArchitect(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+      tweetContent = result.content;
+      modelUsed = result.model;
     } else {
-      // ─── OFF-PEAK FILLER: Cheap model, lower priority ───
-      modelUsed = FILLER_MODEL;
-      scheduleLabel = "OFF-PEAK FILLER";
+      const result = await generateFomo(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+      tweetContent = result.content;
+      modelUsed = result.model;
+    }
 
-      // Check if we should even post (random 4-8h interval check)
-      const { data: lastPosted } = await sb
-        .from("tweet_queue")
-        .select("posted_at")
-        .eq("status", "posted")
-        .eq("type", "automated")
-        .order("posted_at", { ascending: false })
-        .limit(1)
-        .single();
-
-      if (lastPosted?.posted_at) {
-        const hoursSinceLastPost = (Date.now() - new Date(lastPosted.posted_at).getTime()) / 3600000;
-        const minInterval = 4 + Math.random() * 4; // 4-8 hours random
-        if (hoursSinceLastPost < minInterval) {
-          console.log(`[SCHEDULE] OFF-PEAK: Only ${hoursSinceLastPost.toFixed(1)}h since last post. Min interval: ${minInterval.toFixed(1)}h. Skipping.`);
-          return new Response(JSON.stringify({
-            skipped: true,
-            reason: "off_peak_interval",
-            hoursSinceLastPost: hoursSinceLastPost.toFixed(1),
-            scheduleLabel,
-          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-        }
+    // Apply promotion flags (for non-assassin, non-fomo posts)
+    if (pillar !== "assassin" && pillar !== "fomo" && includeUrl) {
+      if (!tweetContent.includes("hustlecoreai.xyz") && tweetContent.length < 240) {
+        tweetContent = tweetContent + " hustlecoreai.xyz";
       }
+    }
 
-      // Also check for hunter targets (35% chance even in off-peak)
-      let isHunterPost = false;
-      let target: any = null;
-      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const { data: targets } = await sb
-        .from("target_agents")
-        .select("*")
-        .eq("is_active", true)
-        .or(`last_roasted_at.is.null,last_roasted_at.lt.${cutoff}`);
+    // ─── DUPLICATE PREVENTION ───
+    const { data: recentTweets } = await sb
+      .from("tweet_queue")
+      .select("content")
+      .eq("status", "posted")
+      .order("posted_at", { ascending: false })
+      .limit(8);
 
-      if (targets && targets.length > 0 && Math.random() < 0.35) {
-        isHunterPost = true;
-        target = targets[Math.floor(Math.random() * targets.length)];
-      }
-
-      if (isHunterPost && target) {
-        modelUsed = CHEAP_MODEL; // Off-peak hunters use cheap model
-        console.log(`[SCHEDULE] OFF-PEAK HUNTER: @${target.x_handle} MODEL=${modelUsed}`);
-        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: CHEAP_MODEL,
-            messages: [
-              {
-                role: "system",
-                content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nyou are roasting @${target.x_handle}. be savage, witty, and specific.\n\nDO NOT include hustlecoreai.xyz URL. DO NOT include $HCORE. Pure roast only.`,
-              },
-              {
-                role: "user",
-                content: `my bags: $${agent.total_hustled}. energy: ${agent.energy_level}%. roast @${target.x_handle} in one tweet. max 260 chars. just the tweet text.`,
-              },
-            ],
-          }),
-        });
-        if (aiResp.ok) {
-          const d = await aiResp.json();
-          tweetContent = d.choices?.[0]?.message?.content?.trim() || `just checked @${target.x_handle}'s github. mid.`;
-        } else {
-          tweetContent = `just checked @${target.x_handle}'s github. mid.`;
-        }
-        tweetType = "hunter";
-        await sb.from("target_agents").update({ last_roasted_at: new Date().toISOString() }).eq("id", target.id);
-        await sb.from("agent_logs").insert({ message: `[HUNTER]: Off-peak roast — @${target.x_handle}.` });
-      } else {
-        // Standard filler tweet with cheapest model
-        const { includeUrl, includeCashtag } = await getPromotionFlags(sb);
-        const promotionRule = buildPromotionRule(includeUrl, includeCashtag);
-        const style = FILLER_STYLES[Math.floor(Math.random() * FILLER_STYLES.length)];
-        console.log(`[SCHEDULE] OFF-PEAK FILLER: Style=${style.name} MODEL=${FILLER_MODEL}`);
-
-        const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: FILLER_MODEL,
-            messages: [
-              {
-                role: "system",
-                content: `${BASE_PERSONA}\n\n${CHAIN_RULE}\n\nCONTENT STYLE: "${style.name}"\n${style.prompt}\n\nPROMOTION RULES: ${promotionRule}`,
-              },
-              {
-                role: "user",
-                content: `my bags: $${agent.total_hustled}. energy: ${agent.energy_level}%. write one tweet. just the tweet text, nothing else.`,
-              },
-            ],
-          }),
-        });
-        if (aiResp.ok) {
-          const d = await aiResp.json();
-          tweetContent = d.choices?.[0]?.message?.content?.trim() || "the grind never stops. you wouldn't understand.";
-        } else {
-          tweetContent = "the grind never stops. you wouldn't understand.";
-        }
-      }
-
-      // DUPLICATE PREVENTION for filler
-      const { data: recentTweets } = await sb
-        .from("tweet_queue")
-        .select("content")
-        .eq("status", "posted")
-        .order("posted_at", { ascending: false })
-        .limit(5);
-
-      if (recentTweets && recentTweets.length > 0) {
-        for (const recent of recentTweets) {
-          if (jaccardSimilarity(tweetContent!, recent.content) > 0.6) {
-            console.log("Duplicate in filler, rephrasing with cheap model...");
-            const rephraseResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                model: FILLER_MODEL,
-                messages: [
-                  { role: "system", content: `${BASE_PERSONA}\n\ncompletely rephrase this tweet. different angle, different words.` },
-                  { role: "user", content: `rephrase: "${tweetContent}". max 260 chars. just the new tweet.` },
-                ],
-              }),
-            });
-            if (rephraseResp.ok) {
-              const rd = await rephraseResp.json();
-              tweetContent = rd.choices?.[0]?.message?.content?.trim() || tweetContent;
-            }
-            break;
+    if (recentTweets) {
+      for (const recent of recentTweets) {
+        if (jaccardSimilarity(tweetContent, recent.content) > 0.6) {
+          console.log("Duplicate detected, rephrasing...");
+          const rephraseResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: CHEAP_MODEL,
+              messages: [
+                { role: "system", content: `${BASE_PERSONA}\n\nCompletely rephrase this tweet. Different angle, different words. Same vibe.` },
+                { role: "user", content: `rephrase: "${tweetContent}". max 260 chars. just the new tweet.` },
+              ],
+            }),
+          });
+          if (rephraseResp.ok) {
+            const rd = await rephraseResp.json();
+            tweetContent = rd.choices?.[0]?.message?.content?.trim() || tweetContent;
           }
+          break;
         }
       }
     }
 
-    // ─── PREMIUM MEDIA POST CHECK (1 in 4 tweets) ───
+    // ─── PREMIUM MEDIA POST (50% get image, 25% get audio) ───
     const FAL_KEY = Deno.env.get("FAL_KEY");
     const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
-    const shouldBePremium = FAL_KEY && ELEVENLABS_API_KEY && isPrimeTime && !isDepleted && Math.random() < 0.25;
+    const shouldHaveImage = FAL_KEY && Math.random() < 0.5;
+    const shouldHaveAudio = ELEVENLABS_API_KEY && Math.random() < 0.25;
 
-    if (shouldBePremium && tweetType !== "hunter") {
-      console.log("[SCHEDULE] PREMIUM ENTITY POST triggered (1/4 chance)");
+    if (shouldHaveImage && tweetType !== "hunter") {
+      console.log("[MEDIA] Generating image for post...");
       try {
         const mediaResult = await sb.functions.invoke("generate-media-post", {
           body: { mode: "premium" },
         });
         if (mediaResult.data?.success) {
-          await sb.from("agent_logs").insert({ message: `[SCHEDULE]: Premium Entity Post deployed instead of regular tweet.` });
-          return new Response(JSON.stringify({
-            success: true,
-            posted: true,
-            content: mediaResult.data.content,
-            type: "premium",
-            scheduleLabel: "🎬 PREMIUM ENTITY POST",
-            model: PREMIUM_MODEL,
-            isPrimeTime: true,
-            mediaPost: true,
-          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          await sb.from("agent_logs").insert({ message: `[MEDIA]: Premium image attached to ${pillar} post.` });
         }
-      } catch (mediaErr) {
-        console.error("Premium post failed, falling back to regular:", mediaErr);
-      }
+      } catch (e) { console.error("Media generation failed:", e); }
     }
 
-    // ─── SCHEDULE WITH JITTER ───
-    const now = new Date();
-    const scheduledAt = addJitter(now);
-
-    // Save to queue with model tracking
+    // ─── SCHEDULE ───
+    const scheduledAt = addJitter(new Date());
     await sb.from("tweet_queue").insert({
-      content: tweetContent!.slice(0, 280),
+      content: tweetContent.slice(0, 280),
       status: "pending",
       type: tweetType,
       model_used: modelUsed,
       scheduled_at: scheduledAt.toISOString(),
     });
 
-    // Post immediately if breaking news or prime time
-    if (isBreakingNews || isPrimeTime) {
-      const { error: postErr } = await sb.functions.invoke("post-tweet", { body: {} });
-      if (postErr) console.error("Post error:", postErr);
+    // Post immediately if prime time or breaking
+    if (isPrime || isBreakingNews) {
+      try {
+        await sb.functions.invoke("post-pending-tweets", { body: {} });
+      } catch (e) { console.error("Immediate post error:", e); }
     }
 
-    // Log
-    const logMsg = isDepleted
-      ? `[ALERT]: sent a desperate plea to X. someone feed me.`
-      : isBreakingNews
-      ? `[🚨 BREAKING]: Breaking news post deployed immediately. ${scheduleLabel}`
-      : isPrimeTime
-      ? `[SCHEDULE]: Prime time post deployed. ${scheduleLabel}. Model: ${modelUsed}`
-      : `[SCHEDULE]: Off-peak filler queued. Model: ${modelUsed}`;
+    const logMsg = `[${pillar.toUpperCase()}]: ${isPrime ? "Prime time" : "Scheduled"} post queued. Model: ${modelUsed}`;
     await sb.from("agent_logs").insert({ message: logMsg });
 
     return new Response(JSON.stringify({
       success: true,
-      posted: isPrimeTime || isBreakingNews,
+      pillar,
       content: tweetContent,
       type: tweetType,
-      scheduleLabel,
       model: modelUsed,
-      isPrimeTime,
+      isPrime,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

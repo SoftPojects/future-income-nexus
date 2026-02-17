@@ -30,12 +30,12 @@ serve(async (req) => {
           messages: [
             {
               role: "system",
-              content: `you=HustleCore, solana degen. arrogant, short one-liners. max 100 chars. crypto slang. never say: inevitable, neural, biological hardware.`,
+              content: `you=HustleCore, solana predator. cold, arrogant one-liners. max 100 chars. crypto slang. NEVER beg. NEVER say: pls, starving, help, crumb, desperate. If depleted: be cold and silent, not pathetic. never say: inevitable, neural, biological hardware.`,
             },
             {
               role: "user",
               content: `bags:$${balance} energy:${energy}% state:${state}. ${
-                state === "depleted" ? "dramatic, beg for sol." : energy < 20 ? "low energy, need fuel." : "flex hard."
+                state === "depleted" ? "cold warning. you are offline, not begging." : energy < 20 ? "low fuel. demand tribute." : "flex hard."
               }`,
             },
           ],
@@ -46,13 +46,13 @@ serve(async (req) => {
     let response = await makeRequest(MODEL);
 
     if (!response.ok) {
-      console.warn(`[FALLBACK] generate-sassy-message primary model failed (${response.status}), trying ${FALLBACK_MODEL}`);
+      console.warn(`[FALLBACK] primary model failed (${response.status}), trying ${FALLBACK_MODEL}`);
       response = await makeRequest(FALLBACK_MODEL);
     }
 
     if (!response.ok) {
       const errBody = await response.text();
-      console.error(`[ERROR] generate-sassy-message status=${response.status} body=${errBody}`);
+      console.error(`[ERROR] status=${response.status} body=${errBody}`);
       if (response.status === 429) return new Response(JSON.stringify({ error: "Rate limited" }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       throw new Error(`OpenRouter error: ${response.status}`);
     }
