@@ -82,9 +82,10 @@ serve(async (req) => {
     }
 
     const earned = +(Math.random() * 0.45 + 0.05).toFixed(2);
-    const energyCost = 1;
+    // Phase 1 metabolism: 0.2% per minute = ~8.3 hours for full 100% drain
+    const energyCost = 0.2;
     const newBalance = +(Number(agent.total_hustled) + earned).toFixed(2);
-    const newEnergy = Math.max(0, agent.energy_level - energyCost);
+    const newEnergy = Math.max(0, +((Number(agent.energy_level) - energyCost).toFixed(1)));
     const newStatus = newEnergy <= 0 ? "depleted" : "hustling";
 
     await supabase.from("agent_state").update({
