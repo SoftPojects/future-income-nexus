@@ -172,6 +172,8 @@ const HustleAdmin = () => {
   const [recentExecCount, setRecentExecCount] = useState(0);
   const [editingTargetId, setEditingTargetId] = useState<string | null>(null);
   const [editingHandle, setEditingHandle] = useState("");
+  const [dailyQuota, setDailyQuota] = useState<{ follows_count: number; likes_count: number; follows_limit: number; likes_limit: number } | null>(null);
+  const [pulseRunning, setPulseRunning] = useState(false);
   const [injectingMedia, setInjectingMedia] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -217,7 +219,7 @@ const HustleAdmin = () => {
   }, []);
 
   const fetchSocialLogs = useCallback(async () => {
-    const { data } = await supabase.from("social_logs").select("*").order("created_at", { ascending: false }).limit(20);
+    const { data } = await supabase.from("social_logs").select("*").order("created_at", { ascending: false }).limit(40);
     if (data) setSocialLogs(data);
   }, []);
 
@@ -232,6 +234,12 @@ const HustleAdmin = () => {
     setRecentExecCount(count || 0);
   }, []);
 
+  const fetchDailyQuota = useCallback(async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const { data } = await supabase.from("daily_social_quota" as any).select("*").eq("date", today).maybeSingle();
+    if (data) setDailyQuota(data as any);
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
@@ -241,15 +249,18 @@ const HustleAdmin = () => {
       fetchSocialLogs();
       fetchNextTargets();
       fetchExecCount();
+      fetchDailyQuota();
 
-      // Subscribe to media_assets realtime
+      // Realtime for media_assets + social_logs + daily quota
       const channel = supabase
-        .channel("media-assets-realtime")
+        .channel("admin-realtime")
         .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => fetchMediaAssets())
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "social_logs" }, () => { fetchSocialLogs(); fetchDailyQuota(); })
+        .on("postgres_changes", { event: "*", schema: "public", table: "daily_social_quota" }, () => fetchDailyQuota())
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount]);
+  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota]);
 
   // ─── AUTH ───
   const handleLogin = async () => {
@@ -917,9 +928,70 @@ const HustleAdmin = () => {
 
           {/* SOCIAL ACTIVITY TAB */}
           <TabsContent value="social" className="space-y-6">
+
+            {/* Daily Progress Bars */}
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-xs font-mono tracking-widest text-muted-foreground flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-neon-green" /> DAILY SOCIAL QUOTA
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {dailyQuota ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] font-mono">
+                        <span className="text-muted-foreground">FOLLOWS TODAY</span>
+                        <span className={`font-bold ${dailyQuota.follows_count >= dailyQuota.follows_limit ? "text-destructive" : "text-neon-green"}`}>
+                          {dailyQuota.follows_count} / {dailyQuota.follows_limit}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted border border-border overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{
+                          width: `${Math.min(100, (dailyQuota.follows_count / dailyQuota.follows_limit) * 100)}%`,
+                          background: dailyQuota.follows_count >= dailyQuota.follows_limit ? "hsl(var(--destructive))" : "linear-gradient(90deg, hsl(var(--neon-green)), hsl(160 100% 50%))"
+                        }} />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between text-[10px] font-mono">
+                        <span className="text-muted-foreground">LIKES TODAY</span>
+                        <span className={`font-bold ${dailyQuota.likes_count >= dailyQuota.likes_limit ? "text-destructive" : "text-neon-cyan"}`}>
+                          {dailyQuota.likes_count} / {dailyQuota.likes_limit}
+                        </span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted border border-border overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{
+                          width: `${Math.min(100, (dailyQuota.likes_count / dailyQuota.likes_limit) * 100)}%`,
+                          background: dailyQuota.likes_count >= dailyQuota.likes_limit ? "hsl(var(--destructive))" : "linear-gradient(90deg, hsl(var(--neon-cyan)), hsl(200 100% 50%))"
+                        }} />
+                      </div>
+                    </div>
+                    <p className="text-[9px] font-mono text-muted-foreground">Resets at midnight UTC • Runs every 30 min • 60% idle / 30% like / 10% follow</p>
+                  </>
+                ) : (
+                  <p className="text-[10px] font-mono text-muted-foreground">No activity today yet. Social Pulse runs every 30 minutes.</p>
+                )}
+              </CardContent>
+            </Card>
+
             <div className="flex items-center justify-between">
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">RECENT ACTIVITY ({socialLogs.length})</h2>
               <div className="flex gap-2">
+                <Button onClick={async () => {
+                  setPulseRunning(true);
+                  try {
+                    const { data, error } = await supabase.functions.invoke("social-pulse", {});
+                    if (error) throw error;
+                    const action = data?.action || "idle";
+                    const msg = action === "idle" ? "Idled this cycle." : action === "follow" ? `Followed @${data?.target}` : action === "like" ? `Liked @${data?.target}` : `Skipped: ${data?.reason}`;
+                    toast({ title: `PULSE: ${action.toUpperCase()}`, description: msg });
+                    fetchSocialLogs(); fetchDailyQuota(); fetchNextTargets();
+                  } catch (e) { toast({ title: "Pulse failed", description: String(e), variant: "destructive" }); }
+                  finally { setPulseRunning(false); }
+                }} disabled={pulseRunning} size="sm" className="bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20">
+                  {pulseRunning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Running...</> : <>⚡ TRIGGER PULSE</>}
+                </Button>
                 <Button onClick={async () => {
                   setDiscovering(true); setDiscoveryLog("Scanning...");
                   try {
@@ -933,7 +1005,7 @@ const HustleAdmin = () => {
                 }} disabled={discovering} size="sm" className="bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20">
                   {discovering ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Scanning...</> : <>⚡️ DISCOVERY SCAN</>}
                 </Button>
-                <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); }} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
+                <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); fetchDailyQuota(); }} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
               </div>
             </div>
 
@@ -945,18 +1017,32 @@ const HustleAdmin = () => {
             )}
 
             {socialLogs.length === 0 ? (
-              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm"><Activity className="w-8 h-8 mx-auto mb-3 opacity-50" />No activity logged yet.</div>
+              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm"><Activity className="w-8 h-8 mx-auto mb-3 opacity-50" />No activity logged yet. Social Pulse fires every 30 minutes.</div>
             ) : (
               <div className="space-y-2">
-                {socialLogs.map((log) => (
+                {socialLogs.map((log: any) => (
                   <Card key={log.id} className="bg-card border-border">
-                    <CardContent className="p-3 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${log.action_type === "follow" ? "bg-neon-green" : "bg-neon-cyan"}`} />
-                        <span className="text-foreground text-sm font-mono">{log.action_type === "follow" ? "Followed" : "Liked"} <span className="text-neon-cyan font-bold">@{log.target_handle}</span></span>
-                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${log.source === "discovery" ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20" : "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"}`}>{log.source.toUpperCase()}</span>
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-2 h-2 rounded-full shrink-0 ${log.action_type === "follow" ? "bg-neon-green" : "bg-neon-cyan"}`} />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-foreground text-sm font-mono font-bold">{log.action_type === "follow" ? "Followed" : "Liked"}</span>
+                              <span className="text-neon-cyan font-mono text-sm font-bold">@{log.target_handle}</span>
+                              <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+                                log.source === "auto_pulse" ? "bg-neon-green/10 text-neon-green border border-neon-green/20" :
+                                log.source === "discovery" ? "bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/20" :
+                                "bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/20"
+                              }`}>{log.source?.toUpperCase()}</span>
+                            </div>
+                            {log.reason && (
+                              <p className="text-[10px] font-mono text-muted-foreground mt-0.5 truncate">{log.reason}</p>
+                            )}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-mono shrink-0">{new Date(log.created_at).toLocaleString()}</span>
                       </div>
-                      <span className="text-[10px] text-muted-foreground font-mono">{new Date(log.created_at).toLocaleString()}</span>
                     </CardContent>
                   </Card>
                 ))}
@@ -972,7 +1058,7 @@ const HustleAdmin = () => {
                 </div>
               )}
               {nextTargets.length === 0 ? (
-                <div className="glass rounded-lg p-6 text-center text-muted-foreground text-sm">No upcoming sessions.</div>
+                <div className="glass rounded-lg p-6 text-center text-muted-foreground text-sm">No upcoming sessions. Discovery runs automatically via Social Pulse.</div>
               ) : (
                 <div className="space-y-2">
                   {nextTargets.map((target, idx) => (
@@ -1012,6 +1098,7 @@ const HustleAdmin = () => {
               )}
             </div>
           </TabsContent>
+
 
           {/* MARKET WATCHDOG TAB */}
           <TabsContent value="watchdog" className="space-y-4">
