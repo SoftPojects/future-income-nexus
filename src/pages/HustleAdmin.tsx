@@ -8,9 +8,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useTotalSolDonated } from "@/hooks/useTotalSolDonated";
+
+// ─── Neural Guide Tooltip ───
+const NeuralTooltip = ({ content, children }: { content: string; children: React.ReactNode }) => (
+  <Tooltip delayDuration={300}>
+    <TooltipTrigger asChild>{children}</TooltipTrigger>
+    <TooltipContent
+      className="max-w-xs bg-[hsl(220_20%_8%)] border border-[hsl(180_100%_50%/0.4)] text-[hsl(180_100%_85%)] text-[10px] font-mono leading-relaxed shadow-[0_0_16px_hsl(180_100%_50%/0.15)] px-3 py-2"
+      sideOffset={6}
+    >
+      <p>{content}</p>
+    </TooltipContent>
+  </Tooltip>
+);
 
 interface TweetQueueItem {
   id: string;
@@ -667,9 +681,11 @@ const HustleAdmin = () => {
                       )}
                       {/* Regenerate media */}
                       {(hasImage && variant === "pending") && (
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={regeneratingId === tweet.id} onClick={() => handleRegenerateMedia(tweet.id)} title="Regenerate media">
-                          {regeneratingId === tweet.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-                        </Button>
+                        <NeuralTooltip content="Neural re-imagining. Retries the generation of Image, Audio, or Video if the previous attempt failed or if the quality is not APEX-tier.">
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" disabled={regeneratingId === tweet.id} onClick={() => handleRegenerateMedia(tweet.id)}>
+                            {regeneratingId === tweet.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                          </Button>
+                        </NeuralTooltip>
                       )}
                       {variant !== "posted" && (
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handlePostNow(tweet.id)}>
@@ -705,6 +721,7 @@ const HustleAdmin = () => {
   };
 
   return (
+    <TooltipProvider>
     <div className="min-h-screen bg-background grid-bg">
       {/* Image Preview Modal */}
       {previewImage && (
@@ -789,7 +806,9 @@ const HustleAdmin = () => {
             <div className="flex items-center justify-between">
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">PENDING ({pendingTweets.length})</h2>
               <div className="flex gap-2">
-                <Button onClick={handleForceSync} disabled={syncing} size="sm" variant="destructive"><Zap className="w-4 h-4 mr-1" />{syncing ? "Syncing..." : "FORCE SYNC"}</Button>
+                <NeuralTooltip content="Bypasses the 2026 schedule. Immediately publishes all overdue pending transmissions to the X network.">
+                  <Button onClick={handleForceSync} disabled={syncing} size="sm" variant="destructive"><Zap className="w-4 h-4 mr-1" />{syncing ? "Syncing..." : "FORCE SYNC"}</Button>
+                </NeuralTooltip>
                 {!autopilot && <Button onClick={handleGenerateNow} disabled={generating} size="sm"><Zap className="w-4 h-4 mr-1" />{generating ? "Generating..." : "Generate Now"}</Button>}
                 <Button onClick={handleBatchPreGenerate} disabled={batchGenerating} size="sm" variant="outline" className="border-neon-cyan/50 text-neon-cyan"><Activity className="w-4 h-4 mr-1" />{batchGenerating ? "Pre-Generating..." : "PRE-GEN 24H"}</Button>
                 <Button onClick={handleInjectMedia} disabled={injectingMedia} size="sm" variant="outline" className="border-neon-magenta/50 text-neon-magenta"><Film className="w-4 h-4 mr-1" />{injectingMedia ? "Rendering..." : "INJECT MEDIA"}</Button>
@@ -887,12 +906,16 @@ const HustleAdmin = () => {
                           <Switch checked={target.auto_follow} onCheckedChange={() => handleToggleFollow(target)} className="scale-75" />
                           <span className="text-[9px] font-mono text-muted-foreground">Follow</span>
                         </div>
-                        <Button size="sm" variant="outline" disabled={draftingId === target.id} onClick={() => handleGenerateDrafts(target)}>
-                          {draftingId === target.id ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Researching...</> : <><Lightbulb className="w-3 h-3 mr-1" /> Draft</>}
-                        </Button>
-                        <Button size="sm" variant="destructive" disabled={cooldown.onCooldown || roastingId === target.id} onClick={() => handleRoastNow(target.id)}>
-                          <Zap className="w-3 h-3 mr-1" />{roastingId === target.id ? "Roasting..." : "Roast Now"}
-                        </Button>
+                        <NeuralTooltip content="Strategic planning. Claude 3.5 researches the target via Tavily and suggests 3 unique roast strategies. Use this to review and edit before posting.">
+                          <Button size="sm" variant="outline" disabled={draftingId === target.id} onClick={() => handleGenerateDrafts(target)}>
+                            {draftingId === target.id ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Researching...</> : <><Lightbulb className="w-3 h-3 mr-1" /> Draft</>}
+                          </Button>
+                        </NeuralTooltip>
+                        <NeuralTooltip content="Executes a surgical strike. Immediately generates a context-aware roast (Text + Image) and posts it to X. Full video rendering starts in the background.">
+                          <Button size="sm" variant="destructive" disabled={cooldown.onCooldown || roastingId === target.id} onClick={() => handleRoastNow(target.id)}>
+                            <Zap className="w-3 h-3 mr-1" />{roastingId === target.id ? "Roasting..." : "Roast Now"}
+                          </Button>
+                        </NeuralTooltip>
                         <Button size="sm" variant="ghost" onClick={() => handleDeleteTarget(target.id)}><Trash2 className="w-3 h-3 text-destructive" /></Button>
                       </div>
                     </div>
@@ -978,33 +1001,37 @@ const HustleAdmin = () => {
             <div className="flex items-center justify-between">
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">RECENT ACTIVITY ({socialLogs.length})</h2>
               <div className="flex gap-2">
-                <Button onClick={async () => {
-                  setPulseRunning(true);
-                  try {
-                    const { data, error } = await supabase.functions.invoke("social-pulse", {});
-                    if (error) throw error;
-                    const action = data?.action || "idle";
-                    const msg = action === "idle" ? "Idled this cycle." : action === "follow" ? `Followed @${data?.target}` : action === "like" ? `Liked @${data?.target}` : `Skipped: ${data?.reason}`;
-                    toast({ title: `PULSE: ${action.toUpperCase()}`, description: msg });
-                    fetchSocialLogs(); fetchDailyQuota(); fetchNextTargets();
-                  } catch (e) { toast({ title: "Pulse failed", description: String(e), variant: "destructive" }); }
-                  finally { setPulseRunning(false); }
-                }} disabled={pulseRunning} size="sm" className="bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20">
-                  {pulseRunning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Running...</> : <>⚡ TRIGGER PULSE</>}
-                </Button>
-                <Button onClick={async () => {
-                  setDiscovering(true); setDiscoveryLog("Scanning...");
-                  try {
-                    const { data, error } = await supabase.functions.invoke("auto-follow", { body: { discoveryOnly: true } });
-                    if (error) throw error;
-                    setDiscoveryLog(`Found ${data?.discovered || 0} new targets.`);
-                    fetchNextTargets(); fetchTargets();
-                    setTimeout(() => setDiscoveryLog(null), 8000);
-                  } catch (e) { setDiscoveryLog(`Failed: ${e}`); setTimeout(() => setDiscoveryLog(null), 5000); }
-                  finally { setDiscovering(false); }
-                }} disabled={discovering} size="sm" className="bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20">
-                  {discovering ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Scanning...</> : <>⚡️ DISCOVERY SCAN</>}
-                </Button>
+                <NeuralTooltip content="Forces an immediate autonomous cycle. Triggers X-scanning, terminal log generation, and scheduled social actions without waiting for the next timer tick.">
+                  <Button onClick={async () => {
+                    setPulseRunning(true);
+                    try {
+                      const { data, error } = await supabase.functions.invoke("social-pulse", {});
+                      if (error) throw error;
+                      const action = data?.action || "idle";
+                      const msg = action === "idle" ? "Idled this cycle." : action === "follow" ? `Followed @${data?.target}` : action === "like" ? `Liked @${data?.target}` : `Skipped: ${data?.reason}`;
+                      toast({ title: `PULSE: ${action.toUpperCase()}`, description: msg });
+                      fetchSocialLogs(); fetchDailyQuota(); fetchNextTargets();
+                    } catch (e) { toast({ title: "Pulse failed", description: String(e), variant: "destructive" }); }
+                    finally { setPulseRunning(false); }
+                  }} disabled={pulseRunning} size="sm" className="bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20">
+                    {pulseRunning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Running...</> : <>⚡ TRIGGER PULSE</>}
+                  </Button>
+                </NeuralTooltip>
+                <NeuralTooltip content="Autonomous scout mode. Searches the grid for trending AI agents, influential whales, and Base ecosystem leaders to add to our hunting list.">
+                  <Button onClick={async () => {
+                    setDiscovering(true); setDiscoveryLog("Scanning...");
+                    try {
+                      const { data, error } = await supabase.functions.invoke("auto-follow", { body: { discoveryOnly: true } });
+                      if (error) throw error;
+                      setDiscoveryLog(`Found ${data?.discovered || 0} new targets.`);
+                      fetchNextTargets(); fetchTargets();
+                      setTimeout(() => setDiscoveryLog(null), 8000);
+                    } catch (e) { setDiscoveryLog(`Failed: ${e}`); setTimeout(() => setDiscoveryLog(null), 5000); }
+                    finally { setDiscovering(false); }
+                  }} disabled={discovering} size="sm" className="bg-neon-cyan/10 border border-neon-cyan/30 text-neon-cyan hover:bg-neon-cyan/20">
+                    {discovering ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Scanning...</> : <>⚡️ DISCOVERY SCAN</>}
+                  </Button>
+                </NeuralTooltip>
                 <Button onClick={() => { fetchSocialLogs(); fetchNextTargets(); fetchDailyQuota(); }} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
               </div>
             </div>
@@ -1273,6 +1300,7 @@ const HustleAdmin = () => {
         </Tabs>
       </main>
     </div>
+    </TooltipProvider>
   );
 };
 
