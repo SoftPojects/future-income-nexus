@@ -29,18 +29,18 @@ const VIRTUALS_LINK = "https://app.virtuals.io/prototypes/0xdD831E3f9e845bc520B5
 // US Morning peak = UTC 14:00 (GMT+4 18:00)
 // US Evening peak = UTC 20:00 (GMT+4 00:00)
 
-type ContentPillar = "scout" | "assassin" | "architect" | "fomo";
+type ContentPillar = "scout" | "assassin" | "architect" | "fomo" | "grid_observer";
 
-// 8-post rotation: scout, assassin, architect, fomo x2
+// 8-post rotation: scout, assassin, architect, fomo x2, grid_observer once/day
 const SLOT_ROTATION: { hour: number; pillar: ContentPillar; isPrime: boolean }[] = [
-  { hour: 2,  pillar: "architect", isPrime: false },
-  { hour: 5,  pillar: "fomo",      isPrime: false },
-  { hour: 8,  pillar: "scout",     isPrime: false },
-  { hour: 11, pillar: "assassin",  isPrime: false },
-  { hour: 14, pillar: "scout",     isPrime: true },  // US Morning
-  { hour: 17, pillar: "architect", isPrime: false },
-  { hour: 20, pillar: "fomo",      isPrime: true },  // US Evening
-  { hour: 23, pillar: "assassin",  isPrime: false },
+  { hour: 2,  pillar: "architect",    isPrime: false },
+  { hour: 5,  pillar: "fomo",         isPrime: false },
+  { hour: 8,  pillar: "grid_observer",isPrime: false }, // Market Watchdog slot
+  { hour: 11, pillar: "assassin",     isPrime: false },
+  { hour: 14, pillar: "scout",        isPrime: true },  // US Morning
+  { hour: 17, pillar: "architect",    isPrime: false },
+  { hour: 20, pillar: "fomo",         isPrime: true },  // US Evening
+  { hour: 23, pillar: "assassin",     isPrime: false },
 ];
 
 function getCurrentSlot(): (typeof SLOT_ROTATION)[0] | null {
@@ -246,6 +246,35 @@ async function generateFomo(agent: any, LOVABLE_API_KEY: string, OPENROUTER_API_
   return { content: d.choices?.[0]?.message?.content?.trim() || `$HCORE drops in ${Math.floor(hoursLeft)}h. the grid opens soon. ${VIRTUALS_LINK}`, model };
 }
 
+async function generateGridObserver(sb: any, LOVABLE_API_KEY: string, OPENROUTER_API_KEY: string, claudeAvailable: boolean): Promise<{ content: string; model: string; tweetType: string }> {
+  // Check if already posted today
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const { count: postedToday } = await sb
+    .from("tweet_queue")
+    .select("*", { count: "exact", head: true })
+    .eq("type", "grid_observer")
+    .gte("created_at", todayStart.toISOString());
+
+  if ((postedToday || 0) > 0) {
+    // Already have a grid_observer today — fall through to architect
+    return generateArchitect({} as any, LOVABLE_API_KEY, OPENROUTER_API_KEY, claudeAvailable).then(r => ({ ...r, tweetType: "automated" }));
+  }
+
+  // Delegate to the market-watchdog function
+  try {
+    const result = await sb.functions.invoke("market-watchdog", { body: { force: false } });
+    if (result.data?.content) {
+      return { content: result.data.content, model: result.data.model || "gemini", tweetType: "grid_observer" };
+    }
+  } catch (e) {
+    console.error("[auto-post] market-watchdog invoke failed:", e);
+  }
+
+  // Fallback to architect if watchdog fails
+  return generateArchitect({} as any, LOVABLE_API_KEY, OPENROUTER_API_KEY, claudeAvailable).then(r => ({ ...r, tweetType: "automated" }));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -324,6 +353,8 @@ serve(async (req) => {
             result = r;
           } else if (pillar === "architect") {
             result = await generateArchitect(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+          } else if (pillar === "grid_observer") {
+            result = await generateGridObserver(sb, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
           } else {
             result = await generateFomo(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
           }
@@ -463,6 +494,11 @@ serve(async (req) => {
       const result = await generateArchitect(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
       tweetContent = result.content;
       modelUsed = result.model;
+    } else if (pillar === "grid_observer") {
+      const result = await generateGridObserver(sb, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
+      tweetContent = result.content;
+      modelUsed = result.model;
+      tweetType = result.tweetType;
     } else {
       const result = await generateFomo(agent, LOVABLE_API_KEY!, OPENROUTER_API_KEY, claudeAvailable);
       tweetContent = result.content;
