@@ -7,6 +7,7 @@ import type { AgentState } from "@/hooks/useAgentStateMachine";
 import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 import GlobalChat from "@/components/GlobalChat";
 import VoiceSpeakButton from "@/components/VoiceSpeakButton";
+import NeuralSuggestions from "@/components/NeuralSuggestions";
 import { useSmartScroll } from "@/hooks/useSmartScroll";
 
 interface ChatMessage {
@@ -26,9 +27,15 @@ interface TerminalProps {
     autoPlay: boolean;
     toggleAutoPlay: () => void;
   };
+  neuralSuggestions?: {
+    suggestions: string[];
+    isLoading: boolean;
+    onRefresh: () => void;
+  };
+  energy?: number;
 }
 
-const Terminal = ({ logs, agentState, userInfo, voicePlayback }: TerminalProps) => {
+const Terminal = ({ logs, agentState, userInfo, voicePlayback, neuralSuggestions, energy = 100 }: TerminalProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<TabMode>("logs");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -56,11 +63,14 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback }: TerminalProps) 
   const stateIndicatorColor =
     agentState === "hustling" ? "bg-neon-green" : agentState === "resting" ? "bg-yellow-400" : "bg-muted-foreground";
 
-  const handleSend = async () => {
-    const msg = inputValue.trim();
+  const handleSend = async (overrideMsg?: string) => {
+    const msg = (overrideMsg ?? inputValue).trim();
     if (!msg || isLoading) return;
 
     setInputValue("");
+    // Auto-switch to chat tab when a suggestion triggers a send
+    if (activeTab !== "chat") setActiveTab("chat");
+
     const updated = [...chatMessages, { role: "user" as const, content: msg }];
     setChatMessages(updated);
     localStorage.setItem("hustlecore_private_chat", JSON.stringify(updated));
@@ -83,6 +93,10 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback }: TerminalProps) 
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSuggestionSelect = (suggestion: string) => {
+    handleSend(`Agent, tell me more about: ${suggestion}`);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -269,6 +283,17 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback }: TerminalProps) 
             </AnimatePresence>
           </div>
 
+          {/* Neural Suggestions — above chat input, visible on any tab */}
+          {neuralSuggestions && (
+            <NeuralSuggestions
+              suggestions={neuralSuggestions.suggestions}
+              isLoading={neuralSuggestions.isLoading}
+              isDisabled={energy < 10}
+              onSelect={handleSuggestionSelect}
+              onRefresh={neuralSuggestions.onRefresh}
+            />
+          )}
+
           {/* Chat input — only for agent chat tab */}
           {activeTab === "chat" && (
             <motion.div
@@ -288,7 +313,7 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback }: TerminalProps) 
                 className="flex-1 bg-transparent text-xs font-mono text-foreground placeholder:text-muted-foreground outline-none"
               />
               <motion.button
-                onClick={handleSend}
+                onClick={() => handleSend()}
                 disabled={isLoading || !inputValue.trim()}
                 className="p-1.5 rounded border border-border text-muted-foreground hover:text-neon-cyan hover:border-neon-cyan transition-colors disabled:opacity-30"
                 whileTap={{ scale: 0.9 }}

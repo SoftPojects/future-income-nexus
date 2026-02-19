@@ -30,6 +30,7 @@ import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 import { useHcoreToken } from "@/hooks/useHcoreToken";
 import { useAudioSystem } from "@/hooks/useAudioSystem";
 import { useVoicePlayback } from "@/hooks/useVoicePlayback";
+import { useNeuralSuggestions } from "@/hooks/useNeuralSuggestions";
 import { supabase } from "@/integrations/supabase/client";
 
 /** Mobile wallet button that closes the sheet first, then opens custom wallet modal */
@@ -84,6 +85,11 @@ const Index = () => {
   const [vipNotified, setVipNotified] = useState(false);
   const [isDonor, setIsDonor] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [feedTrigger, setFeedTrigger] = useState(0);
+
+  // Neural suggestions — uses live market cap from TokenStatus via a shared ref approach
+  const [liveMarketCap, setLiveMarketCap] = useState<number | null>(null);
+  const neuralSuggestions = useNeuralSuggestions(userInfo, liveMarketCap, feedTrigger);
 
   const handleMarketMilestone = useCallback((marketCap: number) => {
     const label = marketCap >= 1000 ? `$${(marketCap / 1000).toFixed(0)}K` : `$${marketCap.toFixed(0)}`;
@@ -176,6 +182,8 @@ const Index = () => {
     agent.addLog(
       `[SYSTEM]: ⚡ Detecting incoming signal from ${walletAddress.slice(0, 4)}...${walletAddress.slice(-4)}... Stand by for energy surge.`
     );
+    // Refresh neural suggestions after a feed event
+    setFeedTrigger((t) => t + 1);
 
     try {
       const { data, error } = await supabase.functions.invoke("generate-hustle-tip", {
@@ -305,7 +313,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="relative z-10 px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-4">
         {/* Token Status — full width */}
-        <TokenStatus onMilestone={handleMarketMilestone} />
+        <TokenStatus onMilestone={handleMarketMilestone} onMarketCapChange={setLiveMarketCap} />
 
         {/* SOL Goal Widget — full width */}
         <SolGoalWidget />
@@ -333,11 +341,17 @@ const Index = () => {
               logs={agent.logs}
               agentState={agent.state}
               userInfo={userInfo}
+              energy={agent.energy}
               voicePlayback={{
                 playText: voice.playText,
                 playingId: voice.playingId,
                 autoPlay: voice.autoPlay,
                 toggleAutoPlay: voice.toggleAutoPlay,
+              }}
+              neuralSuggestions={{
+                suggestions: neuralSuggestions.suggestions,
+                isLoading: neuralSuggestions.isLoading,
+                onRefresh: neuralSuggestions.refetch,
               }}
             />
           </div>
