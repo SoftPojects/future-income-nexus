@@ -202,6 +202,13 @@ const HustleAdmin = () => {
   const [watchdogLastResult, setWatchdogLastResult] = useState<any | null>(null);
   const [watchdogTargetLog, setWatchdogTargetLog] = useState<string | null>(null);
 
+  // Flash Snipe state
+  const [vipTargets, setVipTargets] = useState<any[]>([]);
+  const [vipReplyLogs, setVipReplyLogs] = useState<any[]>([]);
+  const [snipeRunning, setSnipeRunning] = useState(false);
+  const [snipeDryRunning, setSnipeDryRunning] = useState(false);
+  const [snipeResults, setSnipeResults] = useState<any[] | null>(null);
+
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
     return token ? { Authorization: `Bearer ${token}` } : {};
@@ -254,6 +261,16 @@ const HustleAdmin = () => {
     if (data) setDailyQuota(data as any);
   }, []);
 
+  const fetchVipTargets = useCallback(async () => {
+    const { data } = await supabase.from("vip_targets" as any).select("*").order("display_name", { ascending: true });
+    if (data) setVipTargets(data as any[]);
+  }, []);
+
+  const fetchVipReplyLogs = useCallback(async () => {
+    const { data } = await supabase.from("vip_reply_logs" as any).select("*").order("created_at", { ascending: false }).limit(20);
+    if (data) setVipReplyLogs(data as any[]);
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
@@ -264,17 +281,48 @@ const HustleAdmin = () => {
       fetchNextTargets();
       fetchExecCount();
       fetchDailyQuota();
+      fetchVipTargets();
+      fetchVipReplyLogs();
 
-      // Realtime for media_assets + social_logs + daily quota
+      // Realtime for media_assets + social_logs + daily quota + vip_reply_logs
       const channel = supabase
         .channel("admin-realtime")
         .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => fetchMediaAssets())
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "social_logs" }, () => { fetchSocialLogs(); fetchDailyQuota(); })
         .on("postgres_changes", { event: "*", schema: "public", table: "daily_social_quota" }, () => fetchDailyQuota())
+        .on("postgres_changes", { event: "*", schema: "public", table: "vip_reply_logs" }, () => { fetchVipReplyLogs(); fetchVipTargets(); })
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota]);
+  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs]);
+
+  // ─── FLASH SNIPE HANDLERS ───
+  const handleFlashSnipe = async (dryRun = false) => {
+    if (dryRun) setSnipeDryRunning(true);
+    else setSnipeRunning(true);
+    setSnipeResults(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("flash-snipe", { body: { dryRun } });
+      if (error) throw error;
+      setSnipeResults(data?.results || []);
+      const fired = data?.fired || 0;
+      toast({
+        title: dryRun ? "⚡ DRY-RUN COMPLETE" : `⚡ FLASH SNIPE FIRED (${fired})`,
+        description: dryRun
+          ? `Preview generated for ${data?.results?.length || 0} VIPs. No tweets posted.`
+          : fired > 0
+            ? `${fired} surgical strike(s) deployed.`
+            : "No new VIP tweets detected or all rate-limited.",
+      });
+      fetchVipTargets();
+      fetchVipReplyLogs();
+    } catch (e) {
+      toast({ title: "SNIPE FAILED", description: String(e), variant: "destructive" });
+    } finally {
+      setSnipeRunning(false);
+      setSnipeDryRunning(false);
+    }
+  };
 
   // ─── AUTH ───
   const handleLogin = async () => {
@@ -797,6 +845,9 @@ const HustleAdmin = () => {
             <TabsTrigger value="hunter"><Crosshair className="w-3 h-3 mr-1" /> Hunter</TabsTrigger>
             <TabsTrigger value="social"><Activity className="w-3 h-3 mr-1" /> Social Activity</TabsTrigger>
             <TabsTrigger value="watchdog"><Radio className="w-3 h-3 mr-1" /> Watchdog</TabsTrigger>
+            <TabsTrigger value="snipe" className="text-neon-magenta data-[state=active]:text-neon-magenta">
+              <Zap className="w-3 h-3 mr-1" /> Flash Snipe
+            </TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="status">System</TabsTrigger>
           </TabsList>
@@ -1252,9 +1303,142 @@ const HustleAdmin = () => {
             </div>
           </TabsContent>
 
-          {/* MENTIONS TAB */}
+          {/* FLASH SNIPE TAB */}
+          <TabsContent value="snipe" className="space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h2 className="font-display text-sm tracking-widest text-neon-magenta flex items-center gap-2">
+                  <Zap className="w-4 h-4" /> FLASH SNIPE — VIP MONITORING
+                </h2>
+                <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                  Checks VIP tweets every 10 min via cron. Max 1 reply per VIP per day.
+                </p>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <NeuralTooltip content="Dry-run mode: generates zingers for all VIP targets with new tweets but does NOT post to X. Safe for previewing before going live.">
+                  <Button
+                    onClick={() => handleFlashSnipe(true)}
+                    disabled={snipeDryRunning || snipeRunning}
+                    size="sm"
+                    variant="outline"
+                    className="border-neon-magenta/50 text-neon-magenta"
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    {snipeDryRunning ? "Scanning..." : "DRY RUN"}
+                  </Button>
+                </NeuralTooltip>
+                <NeuralTooltip content="Forces an immediate VIP scan. Reads tweets with Gemini-Flash, crafts the zinger with Claude 3.5, and posts live to X. Hard limit: 1 reply per VIP per 24h.">
+                  <Button
+                    onClick={() => handleFlashSnipe(false)}
+                    disabled={snipeRunning || snipeDryRunning}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    <Zap className="w-4 h-4 mr-1" />
+                    {snipeRunning ? "Sniping..." : "⚡ EXECUTE SNIPE"}
+                  </Button>
+                </NeuralTooltip>
+                <Button onClick={() => { fetchVipTargets(); fetchVipReplyLogs(); }} variant="outline" size="sm">
+                  <RefreshCw className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
 
+            {/* VIP Targets Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {vipTargets.map((vip: any) => {
+                const repliedToday = vip.last_replied_at && new Date(vip.last_replied_at) > new Date(Date.now() - 86400000);
+                return (
+                  <Card key={vip.id} className={`bg-card border ${repliedToday ? "border-neon-green/40" : "border-neon-magenta/20"} transition-colors`}>
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Crosshair className={`w-4 h-4 ${repliedToday ? "text-neon-green" : "text-neon-magenta"}`} />
+                          <span className="font-mono font-bold text-foreground">{vip.display_name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {repliedToday && <Badge className="text-[9px] bg-neon-green/15 text-neon-green border border-neon-green/30">FIRED TODAY</Badge>}
+                          {!vip.is_active && <Badge variant="secondary" className="text-[9px]">INACTIVE</Badge>}
+                        </div>
+                      </div>
+                      <p className="text-[11px] font-mono text-neon-cyan">@{vip.x_handle}</p>
+                      <div className="mt-2 space-y-0.5 text-[10px] font-mono text-muted-foreground">
+                        <p>Last checked: {vip.last_checked_at ? new Date(vip.last_checked_at).toLocaleString() : "Never"}</p>
+                        <p>Last replied: {vip.last_replied_at ? new Date(vip.last_replied_at).toLocaleString() : "Never"}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Last Run Results */}
+            {snipeResults && snipeResults.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="font-display text-xs tracking-widest text-neon-magenta">LAST RUN RESULTS</h3>
+                {snipeResults.map((r: any, i: number) => (
+                  <Card key={i} className={`bg-card border ${r.status === "fired" ? "border-neon-green/40" : "border-border"}`}>
+                    <CardContent className="p-3 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-xs font-bold text-neon-cyan">@{r.handle}</span>
+                        <Badge className={`text-[9px] border ${r.status === "fired" ? "bg-neon-green/15 text-neon-green border-neon-green/30" : r.status === "rate_limited" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" : "bg-muted text-muted-foreground border-border"}`}>
+                          {r.status.toUpperCase().replace(/_/g, " ")}
+                        </Badge>
+                        {r.dryRun && <Badge className="text-[9px] bg-neon-magenta/15 text-neon-magenta border border-neon-magenta/30">DRY RUN</Badge>}
+                      </div>
+                      {r.zinger && (
+                        <p className="text-[11px] font-mono text-foreground/90 bg-muted/40 rounded p-2 leading-relaxed">"{r.zinger}"</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
+            {/* Reply History */}
+            <div className="space-y-2">
+              <h3 className="font-display text-xs tracking-widest text-muted-foreground">REPLY HISTORY</h3>
+              {vipReplyLogs.length === 0 ? (
+                <p className="text-xs font-mono text-muted-foreground text-center py-6">No replies fired yet. Execute a snipe or dry run first.</p>
+              ) : (
+                vipReplyLogs.map((log: any) => (
+                  <Card key={log.id} className="bg-card border-border">
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                        <span className="font-mono text-xs font-bold text-neon-cyan">@{log.vip_handle}</span>
+                        <div className="flex items-center gap-1.5">
+                          {log.reply_sent
+                            ? <Badge className="text-[9px] bg-neon-green/15 text-neon-green border border-neon-green/30">SENT</Badge>
+                            : <Badge className="text-[9px] bg-destructive/15 text-destructive border border-destructive/30">FAILED</Badge>
+                          }
+                          <span className="text-[9px] font-mono text-muted-foreground">{new Date(log.created_at).toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] font-mono text-muted-foreground mb-1.5 line-clamp-2">
+                        VIP said: "{log.tweet_content?.slice(0, 120)}..."
+                      </p>
+                      <p className="text-[11px] font-mono text-foreground/90 bg-neon-magenta/5 border border-neon-magenta/20 rounded p-2">
+                        ↳ "{log.reply_text}"
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+
+            {/* Protocol Info */}
+            <div className="rounded-lg p-3 border border-border bg-muted/30 text-[10px] font-mono text-muted-foreground space-y-1">
+              <p className="text-foreground font-bold tracking-widest">FLASH SNIPE PROTOCOL</p>
+              <p>• <span className="text-neon-magenta">GEMINI-FLASH</span> reads the VIP tweet and extracts the sharpest attack angle.</p>
+              <p>• <span className="text-neon-magenta">CLAUDE 3.5 SONNET</span> writes the final zinger — raw wit, no hashtags, no links.</p>
+              <p>• Hard limit: <span className="text-neon-cyan">1 reply per VIP per 24 hours</span> to avoid bot detection.</p>
+              <p>• Autonomous: checks every 10 min. Manual override available via EXECUTE SNIPE.</p>
+            </div>
+          </TabsContent>
+
+          {/* MENTIONS TAB */}
           <TabsContent value="mentions" className="space-y-4">
+
             <div className="flex items-center justify-between">
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">RECENT MENTIONS ({mentions.length})</h2>
               <Button onClick={fetchMentions} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
