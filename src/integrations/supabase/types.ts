@@ -340,6 +340,72 @@ export type Database = {
         }
         Relationships: []
       }
+      vip_reply_logs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          reply_sent: boolean
+          reply_text: string
+          tweet_content: string
+          tweet_id: string
+          vip_handle: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          reply_sent?: boolean
+          reply_text: string
+          tweet_content: string
+          tweet_id: string
+          vip_handle: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          reply_sent?: boolean
+          reply_text?: string
+          tweet_content?: string
+          tweet_id?: string
+          vip_handle?: string
+        }
+        Relationships: []
+      }
+      vip_targets: {
+        Row: {
+          created_at: string
+          display_name: string
+          id: string
+          is_active: boolean
+          last_checked_at: string | null
+          last_replied_at: string | null
+          last_tweet_id: string | null
+          x_handle: string
+        }
+        Insert: {
+          created_at?: string
+          display_name: string
+          id?: string
+          is_active?: boolean
+          last_checked_at?: string | null
+          last_replied_at?: string | null
+          last_tweet_id?: string | null
+          x_handle: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string
+          id?: string
+          is_active?: boolean
+          last_checked_at?: string | null
+          last_replied_at?: string | null
+          last_tweet_id?: string | null
+          x_handle?: string
+        }
+        Relationships: []
+      }
       x_mentions: {
         Row: {
           author_handle: string
