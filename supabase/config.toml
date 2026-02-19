@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.market-watchdog]
 verify_jwt = false
+
+[functions.social-pulse]
+verify_jwt = false

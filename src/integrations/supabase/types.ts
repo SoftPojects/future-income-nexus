@@ -80,6 +80,36 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_social_quota: {
+        Row: {
+          date: string
+          follows_count: number
+          follows_limit: number
+          id: string
+          likes_count: number
+          likes_limit: number
+          updated_at: string
+        }
+        Insert: {
+          date?: string
+          follows_count?: number
+          follows_limit?: number
+          id?: string
+          likes_count?: number
+          likes_limit?: number
+          updated_at?: string
+        }
+        Update: {
+          date?: string
+          follows_count?: number
+          follows_limit?: number
+          id?: string
+          likes_count?: number
+          likes_limit?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       donations: {
         Row: {
           amount_sol: number
@@ -207,6 +237,7 @@ export type Database = {
           action_type: string
           created_at: string
           id: string
+          reason: string | null
           source: string
           target_handle: string
         }
@@ -214,6 +245,7 @@ export type Database = {
           action_type: string
           created_at?: string
           id?: string
+          reason?: string | null
           source?: string
           target_handle: string
         }
@@ -221,6 +253,7 @@ export type Database = {
           action_type?: string
           created_at?: string
           id?: string
+          reason?: string | null
           source?: string
           target_handle?: string
         }
