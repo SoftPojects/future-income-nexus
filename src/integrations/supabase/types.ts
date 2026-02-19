@@ -259,6 +259,24 @@ export type Database = {
         }
         Relationships: []
       }
+      system_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value?: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       target_agents: {
         Row: {
           auto_follow: boolean
@@ -345,30 +363,39 @@ export type Database = {
           created_at: string
           error_message: string | null
           id: string
+          like_count: number | null
+          likes_checked_at: string | null
           reply_sent: boolean
           reply_text: string
           tweet_content: string
           tweet_id: string
+          tweet_url: string | null
           vip_handle: string
         }
         Insert: {
           created_at?: string
           error_message?: string | null
           id?: string
+          like_count?: number | null
+          likes_checked_at?: string | null
           reply_sent?: boolean
           reply_text: string
           tweet_content: string
           tweet_id: string
+          tweet_url?: string | null
           vip_handle: string
         }
         Update: {
           created_at?: string
           error_message?: string | null
           id?: string
+          like_count?: number | null
+          likes_checked_at?: string | null
           reply_sent?: boolean
           reply_text?: string
           tweet_content?: string
           tweet_id?: string
+          tweet_url?: string | null
           vip_handle?: string
         }
         Relationships: []
@@ -382,6 +409,7 @@ export type Database = {
           last_checked_at: string | null
           last_replied_at: string | null
           last_tweet_id: string | null
+          rotation_order: number | null
           x_handle: string
         }
         Insert: {
@@ -392,6 +420,7 @@ export type Database = {
           last_checked_at?: string | null
           last_replied_at?: string | null
           last_tweet_id?: string | null
+          rotation_order?: number | null
           x_handle: string
         }
         Update: {
@@ -402,6 +431,7 @@ export type Database = {
           last_checked_at?: string | null
           last_replied_at?: string | null
           last_tweet_id?: string | null
+          rotation_order?: number | null
           x_handle?: string
         }
         Relationships: []
