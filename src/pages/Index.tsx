@@ -84,6 +84,13 @@ const Index = () => {
   const [vipNotified, setVipNotified] = useState(false);
   const [isDonor, setIsDonor] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const handleMarketMilestone = useCallback((marketCap: number) => {
+    const label = marketCap >= 1000 ? `$${(marketCap / 1000).toFixed(0)}K` : `$${marketCap.toFixed(0)}`;
+    agent.addLog(
+      `[MARKET]: $HCORE floor rising to ${label}. Intelligence is becoming more expensive. Keep up, meat-hooks.`
+    );
+  }, [agent.addLog]);
   const prevLogCount = useRef(0);
   const vocalModulesLoggedRef = useRef(false);
 
@@ -298,7 +305,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="relative z-10 px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-4">
         {/* Token Status — full width */}
-        <TokenStatus />
+        <TokenStatus onMilestone={handleMarketMilestone} />
 
         {/* SOL Goal Widget — full width */}
         <SolGoalWidget />

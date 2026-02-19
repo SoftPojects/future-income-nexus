@@ -1,25 +1,105 @@
 import { motion } from "framer-motion";
 import { VIRTUALS_URL } from "./CountdownBanner";
+import { useTokenData } from "@/hooks/useTokenData";
+import { cn } from "@/lib/utils";
 
-const TokenStatus = () => {
+interface TokenStatusProps {
+  onMilestone?: (marketCap: number) => void;
+}
+
+const Shimmer = () => (
+  <span className="inline-block w-12 h-3 rounded bg-muted/60 animate-pulse align-middle" />
+);
+
+const TokenStatus = ({ onMilestone }: TokenStatusProps) => {
+  const { marketCap, bondingCurvePercent, priceChangeH24, isLoading, isError, formatMarketCap } =
+    useTokenData(onMilestone);
+
+  const isUp = priceChangeH24 !== null && priceChangeH24 > 0;
+  const isDown = priceChangeH24 !== null && priceChangeH24 < 0;
+
+  const marketCapClass = cn(
+    "font-bold transition-colors duration-700",
+    isUp && "text-neon-green drop-shadow-[0_0_8px_hsl(var(--neon-green))]",
+    isDown && "text-destructive drop-shadow-[0_0_8px_hsl(var(--destructive))]",
+    !isUp && !isDown && "text-neon-cyan"
+  );
+
   return (
     <motion.a
       href={VIRTUALS_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="glass rounded-lg px-4 py-3 flex items-center gap-6 text-[10px] font-mono border border-neon-magenta/20 hover:border-neon-magenta/40 transition-colors cursor-pointer block"
+      className="glass rounded-lg px-4 py-3 flex items-center gap-6 text-[10px] font-mono border border-neon-magenta/20 hover:border-neon-magenta/40 transition-colors cursor-pointer block flex-wrap"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <span className="text-muted-foreground tracking-widest">$HCORE TOKEN</span>
+      <div className="flex items-center gap-1.5">
+        <span className="text-muted-foreground tracking-widest">$HCORE TOKEN</span>
+        {!isLoading && !isError && (
+          <motion.span
+            className="w-1.5 h-1.5 rounded-full bg-neon-green"
+            animate={{ opacity: [1, 0.3, 1] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          />
+        )}
+        {isError && (
+          <span className="text-destructive/60 text-[9px]">OFFLINE</span>
+        )}
+      </div>
+
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground">Market Cap:</span>
-        <span className="text-neon-cyan font-bold">$---</span>
+        {isLoading ? (
+          <Shimmer />
+        ) : isError || marketCap === null ? (
+          <span className="text-neon-cyan font-bold">$---</span>
+        ) : (
+          <motion.span
+            className={marketCapClass}
+            key={marketCap}
+            initial={{ opacity: 0.6, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4 }}
+          >
+            {formatMarketCap(marketCap)}
+          </motion.span>
+        )}
+        {priceChangeH24 !== null && !isLoading && (
+          <span className={cn("text-[9px]", isUp ? "text-neon-green" : isDown ? "text-destructive" : "text-muted-foreground")}>
+            ({isUp ? "+" : ""}{priceChangeH24.toFixed(1)}%)
+          </span>
+        )}
       </div>
+
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground">Bonding Curve:</span>
-        <span className="text-neon-magenta font-bold">--%</span>
+        {isLoading ? (
+          <Shimmer />
+        ) : isError || bondingCurvePercent === null ? (
+          <span className="text-neon-magenta font-bold">--%</span>
+        ) : (
+          <motion.span
+            className="text-neon-magenta font-bold"
+            key={bondingCurvePercent}
+            initial={{ opacity: 0.6 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4 }}
+          >
+            {bondingCurvePercent.toFixed(1)}%
+          </motion.span>
+        )}
       </div>
+
+      {bondingCurvePercent !== null && bondingCurvePercent >= 80 && !isLoading && (
+        <motion.span
+          className="text-[9px] text-yellow-400 font-bold tracking-wider"
+          animate={{ opacity: [1, 0.5, 1] }}
+          transition={{ duration: 1.2, repeat: Infinity }}
+        >
+          ⚡ MIGRATION IMMINENT
+        </motion.span>
+      )}
     </motion.a>
   );
 };
