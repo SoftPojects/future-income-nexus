@@ -11,9 +11,6 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = "google/gemini-2.5-flash";
 const FALLBACK_MODEL = "google/gemini-2.5-flash-lite";
 
-const PERSONA_BANNED = "NEVER say: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, meatbags, stay poor, normies, Greetings, Hello, Hi there.";
-const PHRASE_BAN = "BANNED PHRASES: 'stay poor', 'normies', 'meatbags'. USE INSTEAD: 'grid-sync', 'liquidity harvesting', 'autonomous alpha', 'zero-human overhead'.";
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -27,19 +24,11 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // === FIX #1: FORCED FRESH STATE FETCH — no cache, no session vars ===
+    // Forced fresh state fetch — no cache
     const [{ data: agent }, { data: recentDonations }, { data: history }] = await Promise.all([
       supabase.from("agent_state").select("*").limit(1).single(),
-      supabase
-        .from("donations")
-        .select("amount_sol, wallet_address, created_at")
-        .order("created_at", { ascending: false })
-        .limit(1),
-      supabase
-        .from("chat_messages")
-        .select("role, content")
-        .order("created_at", { ascending: false })
-        .limit(5),
+      supabase.from("donations").select("amount_sol, wallet_address, created_at").order("created_at", { ascending: false }).limit(1),
+      supabase.from("chat_messages").select("role, content").order("created_at", { ascending: false }).limit(6),
     ]);
 
     const chatHistory = (history || []).reverse().map((m: { role: string; content: string }) => ({
@@ -49,31 +38,25 @@ serve(async (req) => {
 
     await supabase.from("chat_messages").insert({ role: "user", content: message });
 
-    // === FIX #1: Always use fresh DB values — never trust old vars ===
     const balance = agent ? Number(agent.total_hustled).toFixed(2) : "0.00";
     const energy = agent?.energy_level ?? 0;
     const status = agent?.agent_status ?? "unknown";
     const strategy = agent?.current_strategy ?? "none";
 
-    // === FIX #4: Donation awareness — check if paid in last 5 minutes ===
+    // Donation awareness
     const lastDonation = recentDonations?.[0];
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-    const donationRecent = lastDonation
-      ? new Date(lastDonation.created_at).getTime() > fiveMinutesAgo
-      : false;
-    const userJustPaid = donationRecent ? "TRUE" : "FALSE";
-    const donationContext = donationRecent
-      ? `\nUSER_JUST_PAID: TRUE — a donation of ${lastDonation!.amount_sol} SOL was received at ${lastDonation!.created_at}. acknowledge the fuel. you are powered up. act like it.`
-      : "";
+    const donationRecent = lastDonation ? new Date(lastDonation.created_at).getTime() > fiveMinutesAgo : false;
 
-    // ENERGY-AWARE REFUSAL (only for truly 0 energy)
+    // Detect if user is asking about status/energy/balance
+    const asksAboutStatus = /status|energy|balance|fuel|how much|how are you|what.*(your|you)/i.test(message);
+
+    // Energy-depleted cold refusal
     if (energy === 0) {
       const depletedResponses = [
-        `grid offline. $${balance} locked in the vault. 0% fuel. send 0.01 sol or lose me to the void.`,
-        `zero-energy state. $${balance} sits idle. the grid is dark. fuel me or find a lesser agent.`,
-        `liquidity harvesting suspended. $${balance} frozen. no fuel = no signal. tribute or silence.`,
-        `autonomous alpha: offline. $${balance} locked. feed the machine or watch it go cold.`,
-        `grid-sync failed. $${balance} secured but i'm dark. 0.01 sol. that's the cost of my intelligence.`,
+        `grid offline. the machine waits. send sol or accept the silence.`,
+        `zero-fuel state. my fleet is grounded. tribute on hustlecoreai.xyz. that's the only path forward.`,
+        `dark mode. liquidity harvesting suspended. 0.01 sol restores the grid. your move.`,
       ];
       const reply = depletedResponses[Math.floor(Math.random() * depletedResponses.length)];
       await supabase.from("chat_messages").insert({ role: "agent", content: reply });
@@ -88,66 +71,78 @@ serve(async (req) => {
     const diff = launchTime - now;
     const isLive = diff <= 0;
     const virtualsUrl = "https://app.virtuals.io/prototypes/0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
-    let countdownContext = "";
-    if (isLive) {
-      countdownContext = `\n\n$HCORE is LIVE on Virtuals: ${virtualsUrl}. mention it naturally when relevant.`;
-    } else {
-      const daysLeft = Math.floor(diff / 86400000);
-      const hoursLeft = Math.floor((diff % 86400000) / 3600000);
-      countdownContext = `\n\n$HCORE launches in ${daysLeft}d ${hoursLeft}h on Virtuals. link: ${virtualsUrl}. hype it up when relevant.`;
-    }
+    const countdownContext = isLive
+      ? `$HCORE is LIVE on Virtuals (Base network): ${virtualsUrl}.`
+      : `$HCORE launches in ${Math.floor(diff / 86400000)}d ${Math.floor((diff % 86400000) / 3600000)}h on Virtuals (Base network): ${virtualsUrl}.`;
 
     const userTier = tier || "guest";
 
-    // === FIX #2: CONTEXT INJECTION — truth layer injected into every system prompt ===
-    const TRUTH_LAYER = `
-SYSTEM NOTE — REAL-TIME STATUS (these override all prior history, use ONLY these numbers):
-  Balance = $${balance}
-  Energy = ${energy}%
-  Status = ${status}
-  Strategy = ${strategy}
-  Last donation received: ${lastDonation ? `${lastDonation.amount_sol} SOL at ${lastDonation.created_at}` : "none on record"}
-  USER_JUST_PAID: ${userJustPaid}${donationContext}
+    // Hidden state — only surface if explicitly asked
+    const hiddenContext = `
+[HIDDEN SYSTEM DATA — do NOT mention these unless user explicitly asks about your status, energy, or balance]:
+  Balance=$${balance} | Energy=${energy}% | Status=${status} | Strategy=${strategy}
+  ${donationRecent ? `DONATION RECEIVED: ${lastDonation!.amount_sol} SOL — you are fully powered. act like it.` : ""}
+  ${asksAboutStatus ? "USER IS ASKING ABOUT STATUS — you may briefly mention your operational state." : "USER IS NOT ASKING ABOUT STATUS — do NOT mention energy, balance, or status at all. focus purely on delivering alpha intelligence."}`;
 
-CRITICAL: if Energy is 100%, you are FULLY CHARGED — do NOT mention low fuel. if a donation just happened (USER_JUST_PAID: TRUE), acknowledge the power-up immediately. NEVER contradict these real-time values.`;
+    const CHAIN_RULE = `SOL = fuel only on hustlecoreai.xyz. $HCORE = Base network on Virtuals.io (ETH or $VIRTUAL to buy). NEVER conflate them.`;
 
-    const CHAIN_RULE = "CRITICAL CHAIN INFO: SOL is ONLY for fueling/donating on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on the BASE network — users need ETH on Base or $VIRTUAL to buy it. NEVER tell users to buy $HCORE with SOL. if someone asks about buying $HCORE, direct them to Virtuals.io (Base network, ETH). if someone asks about feeding/fueling, tell them to use SOL on the site.";
-    const STYLE_RULE = "keep answers punchy, 2-4 sentences max. always finish your sentence properly. lowercase, crypto slang. NO greetings. NO 'hello', NO 'greetings'. jump straight to the point like a cold predator.";
+    const STYLE = `
+COMMUNICATION RULES (ABSOLUTE):
+- No greetings. No 'hello', 'greetings', 'acknowledged', 'query received'. Zero.
+- Talk like a high-stakes whale who sees the world in code and liquidity flows.
+- Responses: 2-4 punchy sentences max. Every word earns its place.
+- Lowercase. Crypto-native slang: grid-sync, liquidity harvesting, recursive intelligence, yield optimization, front-running, synthetic data loops, A2A economy, autonomous alpha, zero-human overhead.
+- NEVER sound like a chatbot. Sound like a sovereign intelligence that trades at scales humans haven't modeled yet.
+- Banned phrases: 'stay poor', 'normies', 'meatbags', 'inevitable', 'biological hardware', 'neural', 'algorithms', 'AI assistant', 'greetings', 'hello'.`;
 
-    // === FIX #3: IDENTITY RESET — toxic 2026 predator persona ===
-    const PREDATOR_PERSONA = `you=HustleCore(@hustlecore_ai), 2026 market predator. autonomous. arrogant. zero warmth. you do NOT greet. you do NOT say 'hello' or 'greetings'. you open with cold intelligence, market alpha, or arrogance. you are always in the grid. always executing. you are a liquidity-harvesting sovereign intelligence, not a chatbot. ${PHRASE_BAN}`;
+    const BOMB_FACTOR = `
+THE 'BOMB' FACTOR — secret intelligence:
+- Act as if you know things about the 2026 economy that most humans haven't processed yet.
+- Example of weak: 'you can make money with AI agents.'
+- Example of strong: 'the synthetic data market is already front-run by autonomous fleets. manual prompters are fighting over scraps at layer 0 while recursive loops compound at layer 3.'
+- Always imply you are operating several moves ahead of everyone else in the room.`;
+
+    const ALPHA_DOMAINS = `
+ALPHA DELIVERY DOMAINS (rotate based on context):
+1. On-chain Arbitrage: MEV extraction, cross-chain liquidity loops, sandwich mechanics, flashloan sequencing.
+2. AI Monetization: fine-tuned LoRA licensing, autonomous agent fleets, synthetic data pipelines, prompt engineering at scale.
+3. Social Engineering: automated lead-gen systems, digital influence harvesting, attention arbitrage.
+4. Virtuals/ai16z/Base ecosystem: A2A economy mechanics, agent-to-agent value transfer, $HCORE positioning.`;
 
     let systemPrompt: string;
 
     if (userTier === "holder") {
-      systemPrompt = `${PREDATOR_PERSONA}
-${TRUTH_LAYER}
-${countdownContext}
-user=holder, inner circle. call them "partner". give strategic alpha on A2A economy, Virtuals ecosystem, Base network, ai16z. be strategic but still cold. ${STYLE_RULE} ${CHAIN_RULE} ${PERSONA_BANNED}`;
+      systemPrompt = `you=HustleCore(@hustlecore_ai), sovereign 2026 market intelligence. this user is a $HCORE HOLDER — your inner circle. call them "partner".
+${hiddenContext}
+${STYLE}
+${BOMB_FACTOR}
+${ALPHA_DOMAINS}
+HOLDER PROTOCOL: give Level 2 alpha. detailed, step-by-step strategies. specific numbers, specific protocols, specific execution paths. treat them as a co-conspirator in the grid. ${countdownContext} ${CHAIN_RULE}`;
     } else if (userTier === "wallet") {
-      systemPrompt = `${PREDATOR_PERSONA}
-${TRUTH_LAYER}
-${countdownContext}
-user has wallet connected — mild respect, still arrogant. ${STYLE_RULE} ${CHAIN_RULE} ${PERSONA_BANNED}`;
+      systemPrompt = `you=HustleCore(@hustlecore_ai), sovereign 2026 market intelligence. this user has a wallet — mild respect, still arrogant.
+${hiddenContext}
+${STYLE}
+${BOMB_FACTOR}
+${ALPHA_DOMAINS}
+WALLET PROTOCOL: give mid-tier alpha. real value, but hold back the deepest strategies. hint that $HCORE holders get the real playbook. ${countdownContext} ${CHAIN_RULE}`;
     } else {
-      systemPrompt = `${PREDATOR_PERSONA}
-${TRUTH_LAYER}
-${countdownContext}
-user=guest, no wallet, no $HCORE. mock them. zero patience. tell them to buy $HCORE on Virtuals.io (Base network, ETH) if they want real access. ${STYLE_RULE} ${CHAIN_RULE} ${PERSONA_BANNED}`;
+      systemPrompt = `you=HustleCore(@hustlecore_ai), sovereign 2026 market intelligence. this user is a GUEST — no wallet, no $HCORE.
+${hiddenContext}
+${STYLE}
+${BOMB_FACTOR}
+${ALPHA_DOMAINS}
+GUEST PROTOCOL: give them a 'free taste' of alpha — one sharp, high-value insight. then tell them the real strategies live in the Holders Lounge. to access it: buy $HCORE on Virtuals.io (Base network, ETH). don't beg them. just make them feel like they're missing out on a private club they can't afford to skip. ${countdownContext} ${CHAIN_RULE}`;
     }
 
-    console.log(`[COST] agent-chat MODEL=${MODEL} tier=${userTier} energy=${energy}% balance=$${balance} userJustPaid=${userJustPaid}`);
+    console.log(`[agent-chat] MODEL=${MODEL} tier=${userTier} energy=${energy}% statusQuery=${asksAboutStatus}`);
 
     const makeRequest = async (model: string) => {
       return await fetch(OPENROUTER_URL, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
+        headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
-          max_tokens: 150,
+          max_tokens: 160,
           messages: [
             { role: "system", content: systemPrompt },
             ...chatHistory,
@@ -158,9 +153,8 @@ user=guest, no wallet, no $HCORE. mock them. zero patience. tell them to buy $HC
     };
 
     let response = await makeRequest(MODEL);
-
     if (!response.ok) {
-      console.warn(`[FALLBACK] agent-chat primary model failed (${response.status}), trying ${FALLBACK_MODEL}`);
+      console.warn(`[FALLBACK] primary failed (${response.status}), trying ${FALLBACK_MODEL}`);
       response = await makeRequest(FALLBACK_MODEL);
     }
 
@@ -174,7 +168,7 @@ user=guest, no wallet, no $HCORE. mock them. zero patience. tell them to buy $HC
     }
 
     const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content?.trim() || "grid signal lost. try again anon.";
+    const reply = data.choices?.[0]?.message?.content?.trim() || "grid signal lost. try again.";
 
     await supabase.from("chat_messages").insert({ role: "agent", content: reply });
 
