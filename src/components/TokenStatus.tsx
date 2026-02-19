@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { VIRTUALS_URL } from "./CountdownBanner";
 import { useTokenData } from "@/hooks/useTokenData";
@@ -5,15 +6,25 @@ import { cn } from "@/lib/utils";
 
 interface TokenStatusProps {
   onMilestone?: (marketCap: number) => void;
+  onMarketCapChange?: (marketCap: number | null) => void;
 }
 
 const Shimmer = () => (
   <span className="inline-block w-12 h-3 rounded bg-muted/60 animate-pulse align-middle" />
 );
 
-const TokenStatus = ({ onMilestone }: TokenStatusProps) => {
+const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
   const { marketCap, bondingCurvePercent, priceChangeH24, isLoading, isError, formatMarketCap } =
     useTokenData(onMilestone);
+
+  // Bubble market cap up to parent for neural suggestions
+  const prevMcRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (marketCap !== prevMcRef.current) {
+      prevMcRef.current = marketCap;
+      onMarketCapChange?.(marketCap);
+    }
+  }, [marketCap, onMarketCapChange]);
 
   const isUp = priceChangeH24 !== null && priceChangeH24 > 0;
   const isDown = priceChangeH24 !== null && priceChangeH24 < 0;

@@ -147,6 +147,10 @@
     from { transform: rotateX(25deg) rotateY(0deg); }
     to { transform: rotateX(25deg) rotateY(360deg); }
   }
+
+  @keyframes shimmer {
+    100% { transform: translateX(100%); }
+  }
 }
 
 /* Ensure Solana wallet modal sits above everything */
