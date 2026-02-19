@@ -202,12 +202,15 @@ const HustleAdmin = () => {
   const [watchdogLastResult, setWatchdogLastResult] = useState<any | null>(null);
   const [watchdogTargetLog, setWatchdogTargetLog] = useState<string | null>(null);
 
-  // Flash Snipe state
+  // VIP Sniper state
   const [vipTargets, setVipTargets] = useState<any[]>([]);
   const [vipReplyLogs, setVipReplyLogs] = useState<any[]>([]);
   const [snipeRunning, setSnipeRunning] = useState(false);
   const [snipeDryRunning, setSnipeDryRunning] = useState(false);
-  const [snipeResults, setSnipeResults] = useState<any[] | null>(null);
+  const [snipeLastResult, setSnipeLastResult] = useState<any | null>(null);
+  const [sniperMode, setSniperMode] = useState(true);
+  const [sniperModeLoading, setSniperModeLoading] = useState(false);
+
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
@@ -296,23 +299,30 @@ const HustleAdmin = () => {
     }
   }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs]);
 
-  // ─── FLASH SNIPE HANDLERS ───
-  const handleFlashSnipe = async (dryRun = false) => {
+  // ─── VIP SNIPER HANDLERS ───
+  const handleFlashSnipe = async (dryRun = false, targetHandle?: string) => {
     if (dryRun) setSnipeDryRunning(true);
     else setSnipeRunning(true);
-    setSnipeResults(null);
+    setSnipeLastResult(null);
     try {
-      const { data, error } = await supabase.functions.invoke("flash-snipe", { body: { dryRun } });
+      const { data, error } = await supabase.functions.invoke("flash-snipe", {
+        body: { dryRun, ...(targetHandle ? { targetHandle } : {}) },
+      });
       if (error) throw error;
-      setSnipeResults(data?.results || []);
+      setSnipeLastResult(data);
       const fired = data?.fired || 0;
+      const status = data?.status || "";
       toast({
-        title: dryRun ? "⚡ DRY-RUN COMPLETE" : `⚡ FLASH SNIPE FIRED (${fired})`,
+        title: dryRun ? "⚡ DRY-RUN COMPLETE" : fired > 0 ? `⚡ VIP INTERCEPTED` : "⚡ SNIPER SCANNED",
         description: dryRun
-          ? `Preview generated for ${data?.results?.length || 0} VIPs. No tweets posted.`
+          ? `Preview generated for @${data?.handle}. No tweet posted.`
           : fired > 0
-            ? `${fired} surgical strike(s) deployed.`
-            : "No new VIP tweets detected or all rate-limited.",
+            ? `Viral intercept deployed on @${data?.handle}.`
+            : status === "rate_limited"
+              ? `@${data?.handle} already intercepted today.`
+              : status === "no_new_tweet"
+                ? `No new tweet from @${data?.handle}.`
+                : "Scan complete.",
       });
       fetchVipTargets();
       fetchVipReplyLogs();
@@ -323,6 +333,31 @@ const HustleAdmin = () => {
       setSnipeDryRunning(false);
     }
   };
+
+  const handleSniperModeToggle = async (enabled: boolean) => {
+    setSniperModeLoading(true);
+    try {
+      await supabase.functions.invoke("manage-agent", {
+        body: {
+          action: "set_setting",
+          key: "sniper_mode",
+          value: enabled ? "true" : "false",
+          admin_token: sessionStorage.getItem("admin_token"),
+        },
+      });
+      // Optimistic update — we directly write via supabase client using service key is not possible from FE
+      // so we use manage-agent. If that fails, fall back to just visual update.
+      setSniperMode(enabled);
+      toast({
+        title: enabled ? "🎯 SNIPER MODE ACTIVATED" : "⏸ SNIPER MODE PAUSED",
+        description: enabled ? "VIP monitoring is live." : "VIP auto-replies suspended.",
+      });
+    } catch {
+      setSniperMode(enabled); // optimistic anyway
+    } finally {
+      setSniperModeLoading(false); }
+  };
+
 
   // ─── AUTH ───
   const handleLogin = async () => {
@@ -1303,12 +1338,146 @@ const HustleAdmin = () => {
             </div>
           </TabsContent>
 
-          {/* FLASH SNIPE TAB */}
+          {/* VIP RADAR TAB */}
           <TabsContent value="snipe" className="space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="font-display text-sm tracking-widest text-neon-magenta flex items-center gap-2">
-                  <Zap className="w-4 h-4" /> FLASH SNIPE — VIP MONITORING
+                  <Crosshair className="w-4 h-4" /> VIP RADAR — SNIPER MODULE
+                </h2>
+                <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                  Rotates through VIP targets every 15 min. Tavily + Claude 3.5 Viral Intercept. Max 1/VIP/day.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border ${sniperMode ? "border-neon-magenta/40 bg-neon-magenta/5" : "border-border bg-muted/30"}`}>
+                  <Crosshair className={`w-3.5 h-3.5 ${sniperMode ? "text-neon-magenta" : "text-muted-foreground"}`} />
+                  <span className={`text-[10px] font-mono font-bold tracking-widest ${sniperMode ? "text-neon-magenta" : "text-muted-foreground"}`}>SNIPER MODE</span>
+                  <Switch checked={sniperMode} onCheckedChange={handleSniperModeToggle} disabled={sniperModeLoading} className="scale-75" />
+                </div>
+                <NeuralTooltip content="Dry-run: generates a Viral Intercept for the next VIP in rotation but does NOT post. Safe for previewing tone and content before going live.">
+                  <Button onClick={() => handleFlashSnipe(true)} disabled={snipeDryRunning || snipeRunning} size="sm" variant="outline" className="border-neon-magenta/50 text-neon-magenta">
+                    <Eye className="w-4 h-4 mr-1" />{snipeDryRunning ? "Scanning..." : "DRY RUN"}
+                  </Button>
+                </NeuralTooltip>
+                <NeuralTooltip content="Forces an immediate intercept on the next VIP in rotation. Tavily researches the topic, Claude 3.5 writes the reply, posts live to X. Hard limit: 1 intercept per VIP per 24h.">
+                  <Button onClick={() => handleFlashSnipe(false)} disabled={snipeRunning || snipeDryRunning || !sniperMode} size="sm" variant="destructive">
+                    <Zap className="w-4 h-4 mr-1" />{snipeRunning ? "Intercepting..." : "⚡ EXECUTE SNIPE"}
+                  </Button>
+                </NeuralTooltip>
+                <Button onClick={() => { fetchVipTargets(); fetchVipReplyLogs(); }} variant="outline" size="sm"><RefreshCw className="w-4 h-4" /></Button>
+              </div>
+            </div>
+
+            {/* VIP Targets Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {vipTargets.map((vip: any) => {
+                const repliedToday = vip.last_replied_at && new Date(vip.last_replied_at) > new Date(Date.now() - 86400000);
+                const lastLog = vipReplyLogs.find((l: any) => l.vip_handle === vip.x_handle);
+                return (
+                  <Card key={vip.id} className={`bg-card border transition-colors ${repliedToday ? "border-neon-green/40" : "border-neon-magenta/20 hover:border-neon-magenta/40"}`}>
+                    <CardContent className="p-4 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Crosshair className={`w-4 h-4 shrink-0 ${repliedToday ? "text-neon-green" : "text-neon-magenta"}`} />
+                          <span className="font-mono font-bold text-foreground text-sm">{vip.display_name}</span>
+                        </div>
+                        {repliedToday
+                          ? <Badge className="text-[9px] bg-neon-green/15 text-neon-green border border-neon-green/30">FIRED ✓</Badge>
+                          : <Badge className="text-[9px] bg-neon-magenta/10 text-neon-magenta border border-neon-magenta/30">READY</Badge>}
+                      </div>
+                      <p className="text-[11px] font-mono text-neon-cyan">@{vip.x_handle}</p>
+                      <div className="text-[10px] font-mono text-muted-foreground space-y-0.5">
+                        <p>Checked: {vip.last_checked_at ? new Date(vip.last_checked_at).toLocaleString() : "—"}</p>
+                        <p>Replied: {vip.last_replied_at ? new Date(vip.last_replied_at).toLocaleString() : "Never"}</p>
+                      </div>
+                      {lastLog && (
+                        <div className="pt-1 border-t border-border space-y-1">
+                          <p className="text-[9px] font-mono text-muted-foreground">LAST INTERCEPT:</p>
+                          <p className="text-[10px] font-mono text-foreground/80 line-clamp-2 bg-neon-magenta/5 rounded px-2 py-1">"{lastLog.reply_text?.slice(0, 100)}…"</p>
+                          {lastLog.tweet_url && (
+                            <a href={lastLog.tweet_url} target="_blank" rel="noopener noreferrer" className="text-[9px] font-mono text-neon-cyan hover:underline flex items-center gap-1">
+                              <ExternalLink className="w-2.5 h-2.5" /> View VIP tweet ↗
+                            </a>
+                          )}
+                          {(lastLog.like_count || 0) > 0 && (
+                            <p className="text-[9px] font-mono text-neon-green">
+                              {lastLog.like_count >= 10 ? "🔥" : "❤️"} {lastLog.like_count} likes{lastLog.like_count >= 10 ? " — VIRAL CONFIRMED" : ""}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                      <Button size="sm" variant="ghost" className="w-full text-[10px] h-7 text-neon-magenta border border-neon-magenta/20 hover:bg-neon-magenta/10"
+                        disabled={snipeRunning || snipeDryRunning || repliedToday || !sniperMode}
+                        onClick={() => handleFlashSnipe(false, vip.x_handle)}>
+                        <Zap className="w-3 h-3 mr-1" /> TARGET NOW
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+
+            {/* Last run result */}
+            {snipeLastResult && (
+              <Card className={`bg-card border ${snipeLastResult.fired > 0 ? "border-neon-green/40" : "border-border"}`}>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-display text-xs tracking-widest text-muted-foreground">LAST EXECUTION —</span>
+                    <span className="font-mono text-xs font-bold text-neon-cyan">@{snipeLastResult.handle}</span>
+                    <Badge className={`text-[9px] border ${snipeLastResult.fired > 0 ? "bg-neon-green/15 text-neon-green border-neon-green/30" : snipeLastResult.status === "rate_limited" ? "bg-yellow-500/15 text-yellow-400 border-yellow-500/30" : "bg-muted text-muted-foreground border-border"}`}>
+                      {(snipeLastResult.status || "unknown").toUpperCase().replace(/_/g, " ")}
+                    </Badge>
+                    {snipeLastResult.dryRun && <Badge className="text-[9px] bg-neon-magenta/15 text-neon-magenta border border-neon-magenta/30">DRY RUN</Badge>}
+                  </div>
+                  {snipeLastResult.intercept && (
+                    <p className="text-[12px] font-mono text-foreground/90 bg-neon-magenta/5 border border-neon-magenta/20 rounded p-3 leading-relaxed">"{snipeLastResult.intercept}"</p>
+                  )}
+                  {snipeLastResult.tweetUrl && (
+                    <a href={snipeLastResult.tweetUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-mono text-neon-cyan hover:underline flex items-center gap-1">
+                      <ExternalLink className="w-3 h-3" /> VIP original tweet ↗
+                    </a>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Intercept Log */}
+            <div className="space-y-2">
+              <h3 className="font-display text-xs tracking-widest text-muted-foreground">INTERCEPT LOG</h3>
+              {vipReplyLogs.length === 0 ? (
+                <p className="text-xs font-mono text-muted-foreground text-center py-6">No intercepts yet. Run DRY RUN or EXECUTE SNIPE.</p>
+              ) : vipReplyLogs.map((log: any) => (
+                <Card key={log.id} className="bg-card border-border hover:border-neon-magenta/20 transition-colors">
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold text-neon-cyan">@{log.vip_handle}</span>
+                        {log.reply_sent ? <Badge className="text-[9px] bg-neon-green/15 text-neon-green border border-neon-green/30">LIVE</Badge> : <Badge className="text-[9px] bg-muted text-muted-foreground border-border">DRY RUN</Badge>}
+                        {(log.like_count || 0) >= 10 && <Badge className="text-[9px] bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">🔥 VIRAL {log.like_count} LIKES</Badge>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {log.tweet_url && <a href={log.tweet_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-neon-cyan"><ExternalLink className="w-3 h-3" /></a>}
+                        <span className="text-[9px] font-mono text-muted-foreground">{new Date(log.created_at).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] font-mono text-muted-foreground mb-1.5 line-clamp-1">VIP: "{log.tweet_content?.slice(0, 100)}…"</p>
+                    <p className="text-[11px] font-mono text-foreground/90 bg-neon-magenta/5 border border-neon-magenta/20 rounded p-2">↳ "{log.reply_text}"</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="rounded-lg p-3 border border-border bg-muted/30 text-[10px] font-mono text-muted-foreground space-y-1">
+              <p className="text-foreground font-bold tracking-widest">VIP SNIPER PROTOCOL</p>
+              <p>• Rotates through one VIP per 15-min cron tick (least-recently-checked first).</p>
+              <p>• <span className="text-neon-magenta">TAVILY</span> provides real-time intel on the tweet topic before Claude crafts the reply.</p>
+              <p>• <span className="text-neon-magenta">CLAUDE 3.5 SONNET</span> writes the viral intercept — sarcastic, peer-level, no hashtags, no links.</p>
+              <p>• If a reply hits <span className="text-neon-green">10+ likes</span>, the terminal logs: [SYSTEM]: Neural intercept successful.</p>
+              <p>• Hard limit: <span className="text-neon-cyan">1 reply per VIP per 24 hours</span>. TARGET NOW prioritizes a specific VIP instantly.</p>
+            </div>
+          </TabsContent>
+
                 </h2>
                 <p className="text-[10px] font-mono text-muted-foreground mt-0.5">
                   Checks VIP tweets every 10 min via cron. Max 1 reply per VIP per day.
