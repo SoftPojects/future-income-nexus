@@ -53,3 +53,6 @@ verify_jwt = false
 
 [functions.async-media-worker]
 verify_jwt = false
+
+[functions.market-watchdog]
+verify_jwt = false

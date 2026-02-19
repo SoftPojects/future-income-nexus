@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, Camera, Mic, X, Download, RotateCcw, Play, Pause, Image as ImageIcon, Volume2, Video } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, X, Download, RotateCcw, Play, Pause, Image as ImageIcon, Volume2, Video, TrendingUp, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -72,6 +72,7 @@ function getScheduleLabel(scheduledAt: string, type: string): { label: string; i
   if (type === "whale_tribute") return { label: "🐋 WHALE TRIBUTE", isPrime: true };
   if (type === "manual") return { label: "MANUAL POST", isPrime: false };
   if (type === "trend") return { label: "TREND INTEL", isPrime: false };
+  if (type === "grid_observer") return { label: "📡 GRID OBSERVER", isPrime: false };
 
   const date = new Date(scheduledAt);
   const utcH = date.getUTCHours();
@@ -177,6 +178,13 @@ const HustleAdmin = () => {
   const [playingAudio, setPlayingAudio] = useState<HTMLAudioElement | null>(null);
   const [previewVideo, setPreviewVideo] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+
+  // Watchdog state
+  const [watchdogTrending, setWatchdogTrending] = useState<any[]>([]);
+  const [watchdogLoading, setWatchdogLoading] = useState(false);
+  const [watchdogRunning, setWatchdogRunning] = useState(false);
+  const [watchdogLastResult, setWatchdogLastResult] = useState<any | null>(null);
+  const [watchdogTargetLog, setWatchdogTargetLog] = useState<string | null>(null);
 
   const getAdminHeaders = () => {
     const token = sessionStorage.getItem("admin_token");
@@ -487,6 +495,33 @@ const HustleAdmin = () => {
     } catch (e) { toast({ title: "Delete failed", description: String(e), variant: "destructive" }); }
   };
 
+  // ─── WATCHDOG HANDLERS ───
+  const handleFetchWatchdog = async () => {
+    setWatchdogLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("market-watchdog", { body: { fetchOnly: true } });
+      if (error) throw error;
+      setWatchdogTrending(data?.trending || []);
+      // Fetch latest target from agent_logs
+      const { data: logs } = await supabase.from("agent_logs").select("message").like("message", "%[WATCHDOG:TARGET]%").order("created_at", { ascending: false }).limit(1);
+      if (logs?.[0]) setWatchdogTargetLog(logs[0].message.replace("[WATCHDOG:TARGET]: ", ""));
+    } catch (e) { toast({ title: "Watchdog fetch failed", description: String(e), variant: "destructive" }); }
+    finally { setWatchdogLoading(false); }
+  };
+
+  const handleRunWatchdog = async () => {
+    setWatchdogRunning(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("market-watchdog", { body: { force: true } });
+      if (error) throw error;
+      setWatchdogLastResult(data);
+      if (data?.trending) setWatchdogTrending(data.trending);
+      toast({ title: "GRID OBSERVER DEPLOYED", description: data?.content?.slice(0, 80) + "..." });
+      fetchTweets();
+    } catch (e) { toast({ title: "Watchdog failed", description: String(e), variant: "destructive" }); }
+    finally { setWatchdogRunning(false); }
+  };
+
   const getCooldownStatus = (lastRoastedAt: string | null) => {
     if (!lastRoastedAt) return { onCooldown: false, text: "READY" };
     const diff = Date.now() - new Date(lastRoastedAt).getTime();
@@ -728,11 +763,12 @@ const HustleAdmin = () => {
         </motion.div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="bg-muted border border-border">
+          <TabsList className="bg-muted border border-border flex-wrap">
             <TabsTrigger value="queue">Tweet Queue</TabsTrigger>
             <TabsTrigger value="manual">Manual Post</TabsTrigger>
             <TabsTrigger value="hunter"><Crosshair className="w-3 h-3 mr-1" /> Hunter</TabsTrigger>
             <TabsTrigger value="social"><Activity className="w-3 h-3 mr-1" /> Social Activity</TabsTrigger>
+            <TabsTrigger value="watchdog"><Radio className="w-3 h-3 mr-1" /> Watchdog</TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="status">System</TabsTrigger>
           </TabsList>
@@ -977,7 +1013,133 @@ const HustleAdmin = () => {
             </div>
           </TabsContent>
 
+          {/* MARKET WATCHDOG TAB */}
+          <TabsContent value="watchdog" className="space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Radio className="w-4 h-4 text-neon-cyan animate-pulse" />
+                <h2 className="font-display text-sm tracking-widest text-muted-foreground">MARKET WATCHDOG — BASE NETWORK</h2>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={handleFetchWatchdog} disabled={watchdogLoading} size="sm" variant="outline" className="border-neon-cyan/40 text-neon-cyan hover:bg-neon-cyan/10">
+                  {watchdogLoading ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Scanning...</> : <><TrendingUp className="w-3 h-3 mr-1" /> SCAN TRENDING</>}
+                </Button>
+                <Button onClick={handleRunWatchdog} disabled={watchdogRunning} size="sm" variant="destructive">
+                  {watchdogRunning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Deploying...</> : <><Zap className="w-3 h-3 mr-1" /> RUN GRID OBSERVER</>}
+                </Button>
+              </div>
+            </div>
+
+            {/* Current Watch Target */}
+            {watchdogTargetLog && (
+              <motion.div
+                className="rounded-lg p-4 border border-neon-cyan/30 bg-neon-cyan/5 space-y-1"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <div className="flex items-center gap-2 text-[10px] font-mono text-neon-cyan tracking-widest">
+                  <Radio className="w-3 h-3 animate-pulse" />
+                  CURRENTLY WATCHING
+                </div>
+                <p className="text-foreground text-sm font-mono">{watchdogTargetLog}</p>
+              </motion.div>
+            )}
+
+            {/* Last Generated Post */}
+            {watchdogLastResult?.content && (
+              <Card className="bg-card border-neon-green/30">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-mono text-neon-green tracking-widest flex items-center gap-2">
+                    <CheckCircle className="w-3 h-3" /> LAST GRID OBSERVER POST
+                    <span className="text-muted-foreground ml-auto capitalize">{watchdogLastResult.tone?.replace(/_/g, " ")}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <p className="text-foreground text-sm font-mono leading-relaxed">{watchdogLastResult.content}</p>
+                  <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground">
+                    <span>Model: {watchdogLastResult.model}</span>
+                    {watchdogLastResult.token && (
+                      <span>• Target: ${watchdogLastResult.token.symbol} | MCap: ${
+                        watchdogLastResult.token.marketCap >= 1_000_000
+                          ? `${(watchdogLastResult.token.marketCap / 1_000_000).toFixed(1)}M`
+                          : watchdogLastResult.token.marketCap >= 1_000
+                          ? `${(watchdogLastResult.token.marketCap / 1_000).toFixed(1)}K`
+                          : watchdogLastResult.token.marketCap
+                      }</span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Trending Tokens Grid */}
+            {watchdogTrending.length === 0 ? (
+              <div className="glass rounded-lg p-10 text-center text-muted-foreground text-sm space-y-2">
+                <TrendingUp className="w-8 h-8 mx-auto opacity-30" />
+                <p>No scan data yet. Hit <span className="text-neon-cyan font-mono">SCAN TRENDING</span> to fetch live Base network tokens.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <h3 className="font-display text-xs tracking-widest text-muted-foreground">TOP TRENDING — BASE NETWORK ({watchdogTrending.length} tokens)</h3>
+                {watchdogTrending.map((token: any, idx: number) => {
+                  const isUp = token.priceChange24h > 0;
+                  const mcap = token.marketCap >= 1_000_000
+                    ? `$${(token.marketCap / 1_000_000).toFixed(2)}M`
+                    : token.marketCap >= 1_000
+                    ? `$${(token.marketCap / 1_000).toFixed(1)}K`
+                    : `$${token.marketCap?.toFixed(0) || "N/A"}`;
+                  return (
+                    <Card key={token.address || idx} className="bg-card border-border hover:border-neon-cyan/30 transition-colors">
+                      <CardContent className="p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[10px] font-mono text-muted-foreground w-5">{idx + 1}.</span>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-foreground font-mono font-bold text-sm">${token.symbol}</span>
+                                <span className="text-[10px] font-mono text-muted-foreground">{token.name}</span>
+                              </div>
+                              <div className="flex items-center gap-3 mt-0.5">
+                                <span className="text-[10px] font-mono text-muted-foreground">MCap: {mcap}</span>
+                                <span className={`text-[10px] font-mono font-bold ${isUp ? "text-neon-green" : "text-destructive"}`}>
+                                  {isUp ? "▲" : "▼"} {Math.abs(token.priceChange24h)?.toFixed(1)}% 24h
+                                </span>
+                                {token.volume24h > 0 && (
+                                  <span className="text-[10px] font-mono text-muted-foreground">
+                                    Vol: ${token.volume24h >= 1_000 ? `${(token.volume24h / 1_000).toFixed(0)}K` : token.volume24h?.toFixed(0)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {token.pairUrl && (
+                              <a href={token.pairUrl} target="_blank" rel="noreferrer">
+                                <Button size="sm" variant="ghost" className="h-7 text-[10px] text-neon-cyan px-2">Chart ↗</Button>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Info box */}
+            <div className="rounded-lg p-3 border border-border bg-muted/30 text-[10px] font-mono text-muted-foreground space-y-1">
+              <p className="text-foreground font-bold tracking-widest">HOW IT WORKS</p>
+              <p>• <span className="text-neon-cyan">SCAN TRENDING</span> fetches live Base network token data from DexScreener.</p>
+              <p>• <span className="text-destructive">RUN GRID OBSERVER</span> picks the highest-volume token, picks a random tone (backhanded congrats / auditor roast / cold prediction), generates + queues the tweet.</p>
+              <p>• Runs automatically once per day at 08:00 UTC via autopilot. Force-run overrides the daily cap.</p>
+              <p>• Handles: matched from Hunter target list if available. $CASHTAG always included.</p>
+            </div>
+          </TabsContent>
+
           {/* MENTIONS TAB */}
+
           <TabsContent value="mentions" className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">RECENT MENTIONS ({mentions.length})</h2>
