@@ -554,8 +554,16 @@ serve(async (req) => {
         console.warn("[HUNTER ROAST] post-tweet failed (tweet still queued):", postErr);
       }
 
+      // Activity-based energy burn: Hunter Roast costs 2% extra
+      const { data: currentAgent } = await sb.from("agent_state").select("energy_level").limit(1).single();
+      if (currentAgent) {
+        const newEnergy = Math.max(0, +((Number(currentAgent.energy_level) - 2).toFixed(1)));
+        await sb.from("agent_state").update({ energy_level: newEnergy, updated_at: new Date().toISOString() }).neq("id", "00000000-0000-0000-0000-000000000000");
+        console.log(`[HUNTER ROAST] Activity burn: -2% energy → ${newEnergy}%`);
+      }
+
       await sb.from("agent_logs").insert({
-        message: `[HUNTER]: Tactical ${replyToTweetId ? "reply" : "roast"} on @${target.x_handle}. Model: ${usedModel}. Angle: ${angle}. Intel: ${dossier.length} chars.${replyToTweetId ? ` Reply to: ${replyToTweetId}` : ""}`,
+        message: `[HUNTER]: Tactical ${replyToTweetId ? "reply" : "roast"} on @${target.x_handle}. Model: ${usedModel}. Angle: ${angle}. Intel: ${dossier.length} chars.${replyToTweetId ? ` Reply to: ${replyToTweetId}` : ""} [-2% energy]`,
       });
 
       console.log(`[HUNTER ROAST] === Complete for @${target.x_handle} ===`);

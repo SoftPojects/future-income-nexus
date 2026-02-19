@@ -517,8 +517,18 @@ serve(async (req) => {
       }
     }
 
+    // Activity-based energy burn: Premium Media Post costs 2% extra
+    if (tweetResult.success) {
+      const { data: currentAgent } = await sb.from("agent_state").select("energy_level").limit(1).single();
+      if (currentAgent) {
+        const newEnergy = Math.max(0, +((Number(currentAgent.energy_level) - 2).toFixed(1)));
+        await sb.from("agent_state").update({ energy_level: newEnergy, updated_at: new Date().toISOString() }).neq("id", "00000000-0000-0000-0000-000000000000");
+        console.log(`[MEDIA CORE] Activity burn: -2% energy → ${newEnergy}%`);
+      }
+    }
+
     const logMsg = tweetResult.success
-      ? `[MEDIA CORE]: ✅ Fast-path IMAGE deployed to X. ID: ${tweetResult.tweetId || "unknown"}. Async media queued: ${mediaAssetId || "none"}`
+      ? `[MEDIA CORE]: ✅ Fast-path IMAGE deployed to X. ID: ${tweetResult.tweetId || "unknown"}. Async media queued: ${mediaAssetId || "none"}. [-2% energy]`
       : `[MEDIA CORE]: ❌ ${mode} post failed: ${tweetResult.error}`;
     await sb.from("agent_logs").insert({ message: logMsg });
 
