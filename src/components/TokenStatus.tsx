@@ -70,18 +70,17 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
   );
 
   return (
-    <motion.a
-      href={VIRTUALS_URL}
-      target="_blank"
-      rel="noopener noreferrer"
+    <motion.div
       className={cn(
-        "glass rounded-lg px-4 py-3 flex items-center gap-6 text-[10px] font-mono border transition-all duration-300 cursor-pointer block flex-wrap",
+        "glass rounded-lg p-6 flex flex-col gap-3 h-full border transition-all duration-300",
         pulse
           ? "border-neon-cyan shadow-[0_0_12px_hsl(var(--neon-cyan)/0.5)]"
           : "border-neon-magenta/20 hover:border-neon-magenta/40"
       )}
-      initial={{ opacity: 0, y: 10 }}
+      whileHover={{ scale: 1.02 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.4 }}
     >
       {/* Label + LIVE / OFFLINE indicator */}
       <div className="flex items-center gap-1.5">
@@ -185,17 +184,28 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
       )}
 
       {/* Manual refresh button */}
-      <button
-        onClick={(e) => { e.preventDefault(); refetch(); }}
-        className={cn(
-          "ml-auto p-1 rounded text-muted-foreground hover:text-neon-cyan transition-colors",
-          isLoading && "animate-spin text-neon-cyan"
-        )}
-        title="Force refresh"
-      >
-        <RefreshCw size={10} />
-      </button>
-    </motion.a>
+      <div className="mt-auto pt-2 flex justify-between items-center">
+        <a
+          href={VIRTUALS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[8px] text-muted-foreground/50 hover:text-neon-cyan transition-colors tracking-wider"
+          onClick={(e) => e.stopPropagation()}
+        >
+          VIEW ON VIRTUALS ↗
+        </a>
+        <button
+          onClick={() => refetch()}
+          className={cn(
+            "p-1 rounded text-muted-foreground hover:text-neon-cyan transition-colors",
+            isLoading && "animate-spin text-neon-cyan"
+          )}
+          title="Force refresh"
+        >
+          <RefreshCw size={10} />
+        </button>
+      </div>
+    </motion.div>
   );
 };
 

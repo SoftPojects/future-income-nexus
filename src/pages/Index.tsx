@@ -312,10 +312,7 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="relative z-10 px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-4">
-        {/* Token Status — full width */}
-        <TokenStatus onMilestone={handleMarketMilestone} onMarketCapChange={setLiveMarketCap} />
-
-        {/* SOL Goal Widget — full width */}
+      {/* SOL Goal Widget — full width */}
         <SolGoalWidget />
 
         {/* Row 2: Chat (8 cols) + Avatar (4 cols) */}
@@ -372,6 +369,12 @@ const Index = () => {
           agentState={agent.state}
           strategy={agent.strategy}
           onVotePhase2={() => setVoteOpen(true)}
+          tokenNode={
+            <TokenStatus
+              onMilestone={handleMarketMilestone}
+              onMarketCapChange={setLiveMarketCap}
+            />
+          }
         />
 
         <ActionButtons

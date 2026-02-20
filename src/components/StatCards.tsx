@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
-import { DollarSign, Battery, Brain, Info } from "lucide-react";
+import { DollarSign, Battery, Info } from "lucide-react";
 import type { AgentState } from "@/hooks/useAgentStateMachine";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import type { ReactNode } from "react";
 
 interface StatCardsProps {
   totalHustled: number;
@@ -9,9 +10,10 @@ interface StatCardsProps {
   agentState: AgentState;
   strategy: { name: string; tags: string[] };
   onVotePhase2: () => void;
+  tokenNode?: ReactNode;
 }
 
-const StatCards = ({ totalHustled, energy, agentState, strategy, onVotePhase2 }: StatCardsProps) => {
+const StatCards = ({ totalHustled, energy, agentState, strategy, onVotePhase2, tokenNode }: StatCardsProps) => {
   const getEnergyColor = () => {
     if (energy > 60) return "bg-neon-green";
     if (energy > 30) return "bg-yellow-400";
@@ -96,33 +98,14 @@ const StatCards = ({ totalHustled, energy, agentState, strategy, onVotePhase2 }:
         </div>
       </motion.div>
 
-      {/* Current Strategy */}
+      {/* Token Widget (4 cols) — same row as the two stat cards */}
       <motion.div
-        className="md:col-span-2 lg:col-span-4 glass rounded-lg p-6"
+        className="md:col-span-2 lg:col-span-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
-        whileHover={{ scale: 1.02 }}
       >
-        <div className="flex items-center gap-2 mb-3">
-          <Brain className="w-5 h-5 text-neon-cyan" />
-          <span className="font-display text-[10px] tracking-widest text-muted-foreground uppercase">
-            Current Strategy
-          </span>
-        </div>
-        <p className="font-display text-lg font-bold text-foreground">
-          {strategy.name}
-        </p>
-        <div className="flex gap-2 mt-3 flex-wrap">
-          {strategy.tags.map((tag) => (
-            <span
-              key={tag}
-              className="text-[10px] font-mono px-2 py-1 rounded border border-border text-muted-foreground"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
+        {tokenNode}
       </motion.div>
     </div>
   );
