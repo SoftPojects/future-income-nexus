@@ -208,6 +208,7 @@ const HustleAdmin = () => {
   const [overrideChangeH24, setOverrideChangeH24] = useState("20.13");
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [overrideLoaded, setOverrideLoaded] = useState(false);
+  const [overrideSaved, setOverrideSaved] = useState(false);
 
   // VIP Sniper state
   const [vipTargets, setVipTargets] = useState<any[]>([]);
@@ -299,6 +300,7 @@ const HustleAdmin = () => {
 
   const saveTokenOverride = async () => {
     setOverrideSaving(true);
+    setOverrideSaved(false);
     try {
       const rows = [
         { key: "token_override_enabled", value: overrideEnabled ? "true" : "false" },
@@ -308,7 +310,9 @@ const HustleAdmin = () => {
       for (const row of rows) {
         await supabase.from("system_settings").upsert(row, { onConflict: "key" });
       }
-      toast({ title: "Token Override Saved", description: overrideEnabled ? `Price: $${overridePrice} | 24h: ${overrideChangeH24}%` : "Override disabled — live DexScreener data will be used." });
+      setOverrideSaved(true);
+      setTimeout(() => setOverrideSaved(false), 4000);
+      toast({ title: "✅ SAVED TO GRID", description: overrideEnabled ? `Override active — Price: $${overridePrice} | 24h: ${overrideChangeH24}%` : "Override disabled — live DexScreener data will be used." });
     } catch (e) {
       toast({ title: "Save failed", description: String(e), variant: "destructive" });
     } finally {
@@ -1625,20 +1629,27 @@ const HustleAdmin = () => {
                   <p className="text-[9px] text-muted-foreground">Positive = green (e.g. 20.13), negative = red (e.g. -5.4)</p>
                 </div>
 
-                {/* Save button */}
-                <Button
-                  onClick={saveTokenOverride}
-                  disabled={overrideSaving}
-                  className="bg-yellow-400/10 border border-yellow-400/40 text-yellow-400 hover:bg-yellow-400/20 font-mono text-xs tracking-widest"
-                  variant="outline"
-                >
-                  {overrideSaving ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> SAVING...</> : "💾 SAVE OVERRIDE"}
-                </Button>
+                {/* Save button + confirmation */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Button
+                    onClick={saveTokenOverride}
+                    disabled={overrideSaving}
+                    className="bg-yellow-400/10 border border-yellow-400/40 text-yellow-400 hover:bg-yellow-400/20 font-mono text-xs tracking-widest"
+                    variant="outline"
+                  >
+                    {overrideSaving ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> SAVING...</> : "💾 SAVE OVERRIDE"}
+                  </Button>
+                  {overrideSaved && (
+                    <span className="text-[10px] font-mono font-bold text-neon-green animate-pulse">
+                      ✅ SAVED TO GRID — Dashboard updating now
+                    </span>
+                  )}
+                </div>
 
                 {/* Status */}
                 {overrideLoaded && (
                   <div className="text-[9px] text-muted-foreground border-t border-border pt-3">
-                    <span className="font-bold text-yellow-400/70">NOTE:</span> The override is applied on the next 30s polling cycle. Use the refresh icon on the token widget to see changes immediately.
+                    <span className="font-bold text-yellow-400/70">NOTE:</span> Changes propagate instantly via realtime — all open dashboards update within seconds.
                   </div>
                 )}
               </CardContent>

@@ -231,7 +231,24 @@ export function useTokenData(onMilestone?: (marketCap: number) => void) {
   useEffect(() => {
     load();
     const interval = setInterval(load, FETCH_INTERVAL_MS);
-    return () => clearInterval(interval);
+
+    // Realtime: if system_settings changes (e.g. admin toggles override), reload immediately
+    const channel = supabase
+      .channel("token-override-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "system_settings" },
+        () => {
+          console.log("[TOKEN] system_settings changed via realtime — reloading...");
+          load();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, [load]);
 
   return { ...data, formatMarketCap, refetch: load };
