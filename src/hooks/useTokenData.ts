@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 const TOKEN_ADDRESS = "0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
-const GECKO_API_URL = `https://api.geckoterminal.com/api/v2/networks/base/tokens/${TOKEN_ADDRESS}`;
+// Route through our server-side proxy to avoid CORS blocking
+const GECKO_PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gecko-proxy`;
 const TOTAL_SUPPLY = 1_000_000_000; // $HCORE fixed total supply
 const MIGRATION_MARKET_CAP = 50_000; // Virtuals Protocol migration threshold in USD
 const FETCH_INTERVAL_MS = 30_000; // 30 seconds
@@ -77,13 +78,14 @@ async function fetchDonationsFallback(): Promise<number | null> {
 
 async function fetchGeckoTerminal(): Promise<{ fdv: number; priceUsd: number; priceChangeH24: number } | null> {
   try {
-    const url = `${GECKO_API_URL}?t=${Date.now()}`;
+    const url = `${GECKO_PROXY_URL}?t=${Date.now()}`;
     const res = await fetch(url, {
       cache: "no-store",
       headers: {
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache",
         "Accept": "application/json",
+        "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
       },
     });
     if (!res.ok) {
