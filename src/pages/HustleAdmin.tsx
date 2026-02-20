@@ -797,22 +797,28 @@ const HustleAdmin = () => {
 
                   {/* Meta + Actions */}
                   <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground flex-wrap">
-                      <span className={tweet.type === "hunter" ? "text-destructive uppercase" : "uppercase"}>{tweet.type}</span>
-                      <span>•</span>
-                      <span>{new Date(tweet.created_at).toLocaleString()}</span>
-                      <span className="text-muted-foreground">({tweet.content.length}/280)</span>
-                      {(() => {
-                        const { label, isPrime } = getScheduleLabel(tweet.scheduled_at, tweet.type);
-                        return (
-                          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
-                            label.includes("BREAKING") ? "bg-destructive/20 text-destructive border border-destructive/30" :
-                            isPrime ? "bg-neon-green/10 text-neon-green border border-neon-green/30" :
-                            "bg-muted text-muted-foreground border border-border"
-                          }`}>{label}</span>
-                        );
-                      })()}
-                    </div>
+                     <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground flex-wrap">
+                       <span className={tweet.type === "hunter" ? "text-destructive uppercase" : "uppercase"}>{tweet.type}</span>
+                       <span>•</span>
+                       <span>{new Date(tweet.created_at).toLocaleString()}</span>
+                       <span className="text-muted-foreground">({tweet.content.length}/280)</span>
+                       {variant === "pending" && (
+                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-neon-cyan/10 text-neon-cyan border border-neon-cyan/30">
+                           <Clock className="w-3 h-3" />
+                           SCHED: {new Date(tweet.scheduled_at).toLocaleString()}
+                         </span>
+                       )}
+                       {(() => {
+                         const { label, isPrime } = getScheduleLabel(tweet.scheduled_at, tweet.type);
+                         return (
+                           <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold ${
+                             label.includes("BREAKING") ? "bg-destructive/20 text-destructive border border-destructive/30" :
+                             isPrime ? "bg-neon-green/10 text-neon-green border border-neon-green/30" :
+                             "bg-muted text-muted-foreground border border-border"
+                           }`}>{label}</span>
+                         );
+                       })()}
+                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {/* Audio play */}
                       {hasAudio && (
@@ -845,9 +851,15 @@ const HustleAdmin = () => {
                           </Button>
                         </NeuralTooltip>
                       )}
-                      {variant !== "posted" && (
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handlePostNow(tweet.id)}>
+                      {variant === "pending" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[10px] font-mono border-neon-green/60 text-neon-green hover:bg-neon-green/10 gap-1"
+                          onClick={() => handlePostNow(tweet.id)}
+                        >
                           <Send className="w-3 h-3" />
+                          POST NOW
                         </Button>
                       )}
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => handleEdit(tweet)}>
