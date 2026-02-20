@@ -75,18 +75,20 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       Number(b.liquidity?.usd ?? 0) > Number(a.liquidity?.usd ?? 0) ? b : a
     );
 
-    // Calculate market cap manually: price × total supply (more accurate than API fdv)
-    const priceUsd = Number(best.priceUsd ?? 0);
-    const calculatedMarketCap = priceUsd * TOTAL_SUPPLY;
-    // Use h24 change; fall back to h6 if h24 is missing/zero
-    const priceChangeH24 = Number(
-      best.priceChange?.h24 ?? best.priceChange?.h6 ?? 0
-    );
+    // Parse price from raw string — preserves full decimal precision
+    const rawPriceStr = String(best.priceUsd ?? "0");
+    const priceUsd = parseFloat(rawPriceStr);
 
-    console.log(
-      `[DEX] pair=${best.dexId} | priceUsd=$${priceUsd} | liquidity=$${best.liquidity?.usd} | 24h=${priceChangeH24}%`
-    );
-    console.log(`CALCULATED_MCAP: $${calculatedMarketCap.toFixed(2)} (${priceUsd} × ${TOTAL_SUPPLY})`);
+    // Market Cap = price × total supply (no rounding until display layer)
+    const calculatedMarketCap = priceUsd * TOTAL_SUPPLY;
+
+    // Use h24 directly from raw string; fall back to h6
+    const rawH24 = best.priceChange?.h24;
+    const rawH6 = best.priceChange?.h6;
+    const priceChangeH24 = parseFloat(String(rawH24 ?? rawH6 ?? "0"));
+
+    console.log(`RAW_PRICE: ${rawPriceStr}, FINAL_MCAP: ${calculatedMarketCap}`);
+    console.log(`[DEX] pair=${best.dexId} | liquidity=$${best.liquidity?.usd} | 24h=${priceChangeH24}%`);
 
     return { fdv: calculatedMarketCap, priceUsd, priceChangeH24 };
   } catch (err) {
