@@ -57,19 +57,32 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       return null;
     }
 
-    // Pick pair with highest FDV (most representative market cap)
-    const best = pairs.reduce((a, b) => {
-      const fdvA = Number(a.fdv ?? a.marketCap ?? 0);
-      const fdvB = Number(b.fdv ?? b.marketCap ?? 0);
-      return fdvB > fdvA ? b : a;
-    });
+    // Strict filter: must match our token address on Base chain
+    const filtered = pairs.filter(
+      (p) =>
+        p.chainId === "base" &&
+        p.baseToken?.address?.toLowerCase() === TOKEN_ADDRESS.toLowerCase()
+    );
 
-    const fdv = Number(best.fdv ?? best.marketCap ?? 0);
+    if (!filtered.length) {
+      console.warn("[DEX] No matching Base chain pairs for this token address.");
+      return null;
+    }
+
+    // Among valid pairs, pick the one with highest liquidity (most active market)
+    const best = filtered.reduce((a, b) =>
+      Number(b.liquidity?.usd ?? 0) > Number(a.liquidity?.usd ?? 0) ? b : a
+    );
+
+    // Prefer marketCap field; fall back to fdv
+    const marketCap = Number(best.marketCap ?? best.fdv ?? 0);
     const priceUsd = Number(best.priceUsd ?? 0);
     const priceChangeH24 = Number(best.priceChange?.h24 ?? 0);
 
-    console.log(`[DEX] Best pair: fdv=$${fdv}, price=$${priceUsd}, 24h=${priceChangeH24}%`);
-    return { fdv, priceUsd, priceChangeH24 };
+    console.log(
+      `[DEX] Selected pair: ${best.dexId} | marketCap=$${marketCap} | price=$${priceUsd} | 24h=${priceChangeH24}% | liquidity=$${best.liquidity?.usd}`
+    );
+    return { fdv: marketCap, priceUsd, priceChangeH24 };
   } catch (err) {
     console.error("[DEX] Fetch error:", err);
     return null;
