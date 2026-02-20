@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Shield } from "lucide-react";
 import { VIRTUALS_URL } from "./CountdownBanner";
 import { useTokenData } from "@/hooks/useTokenData";
 import { cn } from "@/lib/utils";
@@ -8,18 +8,27 @@ import { cn } from "@/lib/utils";
 interface TokenStatusProps {
   onMilestone?: (marketCap: number) => void;
   onMarketCapChange?: (marketCap: number | null) => void;
+  onStatsReady?: (liquidity: number, volume: number) => void;
 }
 
 const Shimmer = () => (
-  <span className="inline-block w-20 h-5 rounded bg-muted/60 animate-pulse align-middle" />
+  <span className="inline-block w-16 h-4 rounded bg-muted/60 animate-pulse align-middle" />
 );
 
-const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
+function formatUsdCompact(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${value.toFixed(0)}`;
+}
+
+const TokenStatus = ({ onMilestone, onMarketCapChange, onStatsReady }: TokenStatusProps) => {
   const {
     marketCap,
     priceUsd,
     bondingCurvePercent,
     priceChangeH24,
+    liquidityUsd,
+    volumeH24Usd,
     isLoading,
     isError,
     donationsFallback,
@@ -28,9 +37,9 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
     refetch,
   } = useTokenData(onMilestone);
 
-  // Flash border on every successful fetch
   const [pulse, setPulse] = useState(false);
   const prevMcRef = useRef<number | null>(null);
+  const statsLoggedRef = useRef(false);
 
   useEffect(() => {
     if (marketCap !== null && marketCap !== prevMcRef.current) {
@@ -42,12 +51,16 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
     }
   }, [marketCap, onMarketCapChange]);
 
-  // 24h change classification
-  const isStable =
-    priceChangeH24 !== null &&
-    priceChangeH24 > -0.5 &&
-    priceChangeH24 < 0.5;
-  const isUp   = priceChangeH24 !== null && priceChangeH24 >= 0.5;
+  // Fire onStatsReady once when liquidity and volume are available
+  useEffect(() => {
+    if (!statsLoggedRef.current && liquidityUsd && volumeH24Usd && onStatsReady) {
+      statsLoggedRef.current = true;
+      onStatsReady(liquidityUsd, volumeH24Usd);
+    }
+  }, [liquidityUsd, volumeH24Usd, onStatsReady]);
+
+  const isStable = priceChangeH24 !== null && priceChangeH24 > -0.5 && priceChangeH24 < 0.5;
+  const isUp = priceChangeH24 !== null && priceChangeH24 >= 0.5;
   const isDown = priceChangeH24 !== null && priceChangeH24 <= -0.5;
 
   const changeLabel = isStable
@@ -72,17 +85,22 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
   return (
     <motion.div
       className={cn(
-        "glass rounded-lg p-6 flex flex-col gap-3 h-full border transition-all duration-300",
+        "rounded-lg p-5 flex flex-col gap-3 h-full border transition-all duration-300",
         pulse
           ? "border-neon-cyan shadow-[0_0_12px_hsl(var(--neon-cyan)/0.5)]"
           : "border-neon-magenta/20 hover:border-neon-magenta/40"
       )}
+      style={{
+        background: "hsl(230 15% 6% / 0.85)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+      }}
       whileHover={{ scale: 1.02 }}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.4 }}
     >
-      {/* Label + LIVE / OFFLINE indicator */}
+      {/* Header: Label + Status */}
       <div className="flex items-center gap-1.5">
         <span className="font-display text-[10px] tracking-widest text-muted-foreground uppercase">$HCORE TOKEN</span>
         {!isLoading && !isError ? (
@@ -107,7 +125,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
         )}
       </div>
 
-      {/* Market Cap — largest element */}
+      {/* Market Cap */}
       <div className="flex flex-col gap-0.5">
         <span className="text-[10px] text-muted-foreground tracking-wider uppercase">Market Cap</span>
         <div className="flex items-end gap-2">
@@ -127,17 +145,50 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
             </motion.span>
           )}
           {priceChangeH24 !== null && !isLoading && !isError && (
-            <span className={cn(changeClass, "mb-1")}>
-              ({changeLabel})
-            </span>
+            <span className={cn(changeClass, "mb-1")}>({changeLabel})</span>
           )}
         </div>
-        {/* Raw price sub-label */}
         {priceUsd !== null && !isLoading && !isError && (
           <span className="text-[8px] text-muted-foreground/50 tabular-nums">
             Price: ${priceUsd.toFixed(9).replace(/0+$/, "").replace(/\.$/, "")}
           </span>
         )}
+      </div>
+
+      {/* Market Stats Grid: Liquidity + Volume */}
+      <div className="grid grid-cols-2 gap-2 py-2 border-y border-border/40">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[8px] text-muted-foreground uppercase tracking-wider">Liquidity</span>
+          {isLoading ? (
+            <span className="inline-block w-12 h-3 rounded bg-muted/50 animate-pulse" />
+          ) : liquidityUsd && liquidityUsd > 0 ? (
+            <motion.span
+              className="text-[12px] font-mono font-bold text-neon-cyan tabular-nums"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              {formatUsdCompact(liquidityUsd)}
+            </motion.span>
+          ) : (
+            <span className="text-[11px] font-mono text-muted-foreground/40">—</span>
+          )}
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[8px] text-muted-foreground uppercase tracking-wider">24h Volume</span>
+          {isLoading ? (
+            <span className="inline-block w-12 h-3 rounded bg-muted/50 animate-pulse" />
+          ) : volumeH24Usd && volumeH24Usd > 0 ? (
+            <motion.span
+              className="text-[12px] font-mono font-bold text-neon-magenta tabular-nums"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+            >
+              {formatUsdCompact(volumeH24Usd)}
+            </motion.span>
+          ) : (
+            <span className="text-[11px] font-mono text-muted-foreground/40">—</span>
+          )}
+        </div>
       </div>
 
       {/* Bonding Curve */}
@@ -160,12 +211,13 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
         )}
       </div>
 
-      {/* Data source badge */}
-      <span className="text-[8px] text-neon-cyan/70 tracking-wider border border-neon-cyan/20 rounded px-1.5 py-0.5 self-start">
-        POWERED BY COINGECKO / GECKOTERMINAL
+      {/* VETTED BY GECKO badge */}
+      <span className="flex items-center gap-1 text-[8px] text-neon-green/80 tracking-wider border border-neon-green/25 rounded px-1.5 py-0.5 self-start">
+        <Shield className="w-2.5 h-2.5 text-neon-green" />
+        VETTED BY GECKO
       </span>
 
-      {/* Donations fallback when DEX fails */}
+      {/* Donations fallback */}
       {isError && donationsFallback !== null && donationsFallback > 0 && (
         <div className="flex items-center gap-1.5">
           <span className="text-muted-foreground text-[10px]">Community Raised:</span>
