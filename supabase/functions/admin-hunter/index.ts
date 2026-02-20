@@ -11,7 +11,7 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const CLAUDE_MODEL = "anthropic/claude-3.5-sonnet";
 const GEMINI_SUMMARIZER = "google/gemini-2.5-flash";
 
-// Check daily Claude cap (max 4 premium tweets/day)
+// Check daily Claude cap (max 10 premium tweets/day)
 async function getClaudeUsageToday(sb: any): Promise<number> {
   const todayStart = new Date();
   todayStart.setUTCHours(0, 0, 0, 0);
@@ -450,11 +450,11 @@ serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-      // Check Claude daily cap (max 4 premium tweets/day) — fall back to Gemini instead of erroring
+      // Check Claude daily cap (max 10 premium tweets/day) — fall back to Gemini instead of erroring
       const claudeUsed = await getClaudeUsageToday(sb);
-      const forceGeminiFallback = claudeUsed >= 4;
+      const forceGeminiFallback = claudeUsed >= 10;
       if (forceGeminiFallback) {
-        console.log(`[HUNTER ROAST] Claude daily cap reached (${claudeUsed}/4) — using Gemini fallback for this roast`);
+        console.log(`[HUNTER ROAST] Claude daily cap reached (${claudeUsed}/10) — using Gemini fallback for this roast`);
       }
 
       console.log(`[HUNTER ROAST] === Starting tactical reply for @${target.x_handle} ===`);
