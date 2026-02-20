@@ -81,15 +81,16 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       );
     });
 
-    // Use the pair with the highest priceUsd (most accurate price discovery)
+    // Pick the pair with HIGHEST LIQUIDITY — the real main trading pool
     const best = filtered.reduce((a, b) =>
-      parseFloat(String(b.priceUsd ?? "0")) > parseFloat(String(a.priceUsd ?? "0")) ? b : a
+      parseFloat(String(b.liquidity?.usd ?? "0")) > parseFloat(String(a.liquidity?.usd ?? "0")) ? b : a
     );
 
     // Read raw string — NO Number() conversion until after multiplication
     const rawPrice = String(best.priceUsd ?? "0");
     const mcap = parseFloat(rawPrice) * TOTAL_SUPPLY;
 
+    console.log(`CHOSEN_PAIR_LIQUIDITY: ${best.liquidity?.usd}, PRICE: ${rawPrice}, IS_REAL: true`);
     console.log("CRITICAL_DEBUG_PRICE:", rawPrice);
     console.log("CRITICAL_DEBUG_MCAP:", mcap);
 
