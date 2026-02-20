@@ -210,6 +210,9 @@ const HustleAdmin = () => {
   const [overrideSaving, setOverrideSaving] = useState(false);
   const [overrideLoaded, setOverrideLoaded] = useState(false);
   const [overrideSaved, setOverrideSaved] = useState(false);
+  const [geckoFeedPrice, setGeckoFeedPrice] = useState<string | null>(null);
+  const [geckoFeedChange, setGeckoFeedChange] = useState<string | null>(null);
+  const [geckoFeedLoading, setGeckoFeedLoading] = useState(false);
 
   // VIP Sniper state
   const [vipTargets, setVipTargets] = useState<any[]>([]);
@@ -283,6 +286,33 @@ const HustleAdmin = () => {
     if (data) setVipReplyLogs(data as any[]);
   }, []);
 
+  // ─── GECKO FEED LIVE STATUS ───
+  const fetchGeckoFeed = useCallback(async () => {
+    setGeckoFeedLoading(true);
+    try {
+      const res = await fetch(
+        `https://api.geckoterminal.com/api/v2/networks/base/tokens/0xdD831E3f9e845bc520B5Df57249112Cf6879bE94?t=${Date.now()}`,
+        { cache: "no-store", headers: { Accept: "application/json" } }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const attrs = json?.data?.attributes;
+      if (attrs?.price_usd) {
+        setGeckoFeedPrice(parseFloat(attrs.price_usd).toFixed(9).replace(/0+$/, "").replace(/\.$/, ""));
+        const h24 = attrs.price_change_percentage?.h24 ?? attrs.price_change_percentage?.["24h"] ?? null;
+        setGeckoFeedChange(h24 !== null ? parseFloat(String(h24)).toFixed(2) : null);
+      } else {
+        setGeckoFeedPrice(null);
+        setGeckoFeedChange(null);
+      }
+    } catch {
+      setGeckoFeedPrice(null);
+      setGeckoFeedChange(null);
+    } finally {
+      setGeckoFeedLoading(false);
+    }
+  }, []);
+
   // ─── TOKEN OVERRIDE LOAD ───
   const loadTokenOverride = useCallback(async () => {
     const { data } = await supabase
@@ -313,7 +343,7 @@ const HustleAdmin = () => {
       }
       setOverrideSaved(true);
       setTimeout(() => setOverrideSaved(false), 4000);
-      toast({ title: "✅ SAVED TO GRID", description: overrideEnabled ? `Override active — Price: $${overridePrice} | 24h: ${overrideChangeH24}%` : "Override disabled — live DexScreener data will be used." });
+      toast({ title: "⚡ GRID PINNED", description: overrideEnabled ? `Override active — Price: $${overridePrice} | 24h: ${overrideChangeH24}%` : "Override disabled — live GeckoTerminal data will be used." });
     } catch (e) {
       toast({ title: "Save failed", description: String(e), variant: "destructive" });
     } finally {
@@ -334,6 +364,7 @@ const HustleAdmin = () => {
       fetchVipTargets();
       fetchVipReplyLogs();
       loadTokenOverride();
+      fetchGeckoFeed();
 
       // Realtime for media_assets + social_logs + daily quota + vip_reply_logs
       const channel = supabase
@@ -345,7 +376,7 @@ const HustleAdmin = () => {
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs, loadTokenOverride]);
+  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs, loadTokenOverride, fetchGeckoFeed]);
 
   // ─── VIP SNIPER HANDLERS ───
   const handleFlashSnipe = async (dryRun = false, targetHandle?: string) => {
@@ -1604,11 +1635,40 @@ const HustleAdmin = () => {
               <CardHeader>
                 <CardTitle className="text-sm font-display tracking-widest text-yellow-400">⚡ TOKEN PRICE OVERRIDE</CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
-                  During the Virtuals Prototype phase, DexScreener may show stale or inaccurate data.
-                  Enable the manual override to pin accurate values directly from Virtuals.io to the live dashboard.
+                  During the Virtuals Prototype phase, GeckoTerminal provides the most accurate institutional-grade data.
+                  Enable manual override only if the on-chain grid requires immediate correction.
                 </p>
               </CardHeader>
               <CardContent className="space-y-5">
+
+                {/* Live Gecko Feed Status */}
+                <div className="rounded-md border border-neon-cyan/20 bg-neon-cyan/5 px-3 py-2.5 flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[9px] text-neon-cyan/70 tracking-widest uppercase font-mono font-bold">Current Gecko Feed</span>
+                    {geckoFeedLoading ? (
+                      <span className="text-[11px] font-mono text-muted-foreground animate-pulse">Fetching from GeckoTerminal...</span>
+                    ) : geckoFeedPrice ? (
+                      <span className="text-[11px] font-mono text-neon-cyan font-bold">
+                        ${geckoFeedPrice}
+                        {geckoFeedChange !== null && (
+                          <span className={`ml-2 text-[10px] ${parseFloat(geckoFeedChange) >= 0 ? "text-neon-green" : "text-destructive"}`}>
+                            {parseFloat(geckoFeedChange) >= 0 ? "+" : ""}{geckoFeedChange}%
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-mono text-muted-foreground/50">No data — token may not be indexed yet</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={fetchGeckoFeed}
+                    className="p-1.5 rounded text-muted-foreground hover:text-neon-cyan transition-colors"
+                    title="Refresh Gecko feed"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${geckoFeedLoading ? "animate-spin text-neon-cyan" : ""}`} />
+                  </button>
+                </div>
+
                 {/* Toggle */}
                 <div className="flex items-center gap-3">
                   <Switch
@@ -1620,7 +1680,7 @@ const HustleAdmin = () => {
                     {overrideEnabled ? (
                       <span className="text-yellow-400 font-bold">MANUAL OVERRIDE ACTIVE</span>
                     ) : (
-                      <span className="text-muted-foreground">Use live DexScreener data</span>
+                      <span className="text-muted-foreground">USE LIVE GECKOTERMINAL (COINGECKO) DATA</span>
                     )}
                   </span>
                 </div>
@@ -1636,7 +1696,7 @@ const HustleAdmin = () => {
                     disabled={!overrideEnabled}
                   />
                   <p className="text-[9px] text-muted-foreground">
-                    Market Cap = price × 1,000,000,000. Current: ${overrideEnabled && overridePrice ? (parseFloat(overridePrice) * 1_000_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "--"}
+                    Based on 1,000,000,000 Total Supply. Override Market Cap: ${overrideEnabled && overridePrice ? (parseFloat(overridePrice) * 1_000_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "--"}
                   </p>
                 </div>
 
@@ -1661,19 +1721,39 @@ const HustleAdmin = () => {
                     className="bg-yellow-400/10 border border-yellow-400/40 text-yellow-400 hover:bg-yellow-400/20 font-mono text-xs tracking-widest"
                     variant="outline"
                   >
-                    {overrideSaving ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> SAVING...</> : "💾 SAVE OVERRIDE"}
+                    {overrideSaving ? (
+                      <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> SAVING...</>
+                    ) : overrideSaved ? (
+                      <motion.span
+                        key="pinned"
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="text-neon-green font-bold tracking-widest"
+                      >
+                        ⚡ GRID PINNED
+                      </motion.span>
+                    ) : (
+                      "💾 SAVE OVERRIDE"
+                    )}
                   </Button>
                   {overrideSaved && (
-                    <span className="text-[10px] font-mono font-bold text-neon-green animate-pulse">
-                      ✅ SAVED TO GRID — Dashboard updating now
-                    </span>
+                    <motion.span
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="text-[10px] font-mono font-bold text-neon-green"
+                    >
+                      ✅ PERSISTED TO DATABASE — Dashboard syncing now
+                    </motion.span>
                   )}
                 </div>
 
-                {/* Status */}
+                {/* Status footer */}
                 {overrideLoaded && (
-                  <div className="text-[9px] text-muted-foreground border-t border-border pt-3">
-                    <span className="font-bold text-yellow-400/70">NOTE:</span> Changes propagate instantly via realtime — all open dashboards update within seconds.
+                  <div className="text-[9px] text-muted-foreground border-t border-border pt-3 space-y-1">
+                    <p><span className="font-bold text-yellow-400/70">NOTE:</span> Changes persist to the database and propagate via realtime — all open dashboards update within seconds.</p>
+                    {!overrideEnabled && (
+                      <p className="text-neon-cyan/70">✓ GeckoTerminal feed is active — live data from CoinGecko will be used on the main dashboard.</p>
+                    )}
                   </div>
                 )}
               </CardContent>
