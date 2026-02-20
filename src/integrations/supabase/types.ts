@@ -313,6 +313,39 @@ export type Database = {
         }
         Relationships: []
       }
+      trend_comment_logs: {
+        Row: {
+          id: string
+          original_content: string
+          our_comment: string
+          posted_at: string | null
+          success: boolean | null
+          tweet_author: string
+          tweet_id: string
+          x_url: string | null
+        }
+        Insert: {
+          id?: string
+          original_content: string
+          our_comment: string
+          posted_at?: string | null
+          success?: boolean | null
+          tweet_author: string
+          tweet_id: string
+          x_url?: string | null
+        }
+        Update: {
+          id?: string
+          original_content?: string
+          our_comment?: string
+          posted_at?: string | null
+          success?: boolean | null
+          tweet_author?: string
+          tweet_id?: string
+          x_url?: string | null
+        }
+        Relationships: []
+      }
       tweet_queue: {
         Row: {
           audio_url: string | null
@@ -326,6 +359,8 @@ export type Database = {
           reply_to_tweet_id: string | null
           scheduled_at: string
           status: string
+          thread_group_id: string | null
+          thread_position: number | null
           type: string
         }
         Insert: {
@@ -340,6 +375,8 @@ export type Database = {
           reply_to_tweet_id?: string | null
           scheduled_at?: string
           status?: string
+          thread_group_id?: string | null
+          thread_position?: number | null
           type?: string
         }
         Update: {
@@ -354,6 +391,8 @@ export type Database = {
           reply_to_tweet_id?: string | null
           scheduled_at?: string
           status?: string
+          thread_group_id?: string | null
+          thread_position?: number | null
           type?: string
         }
         Relationships: []

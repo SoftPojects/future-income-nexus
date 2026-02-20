@@ -52,6 +52,30 @@ const TOPICS = [
   },
 ];
 
+// ─── THREAD TOPICS ────────────────────────────────────────────────────────────
+const THREAD_TOPICS = [
+  {
+    id: "thread_trader_reality",
+    hook: `why 99% of traders exit this cycle early. a thread.`,
+    context: `break down the psychology of retail timing failure. use real stats from the news if available. 4 numbered insights + closing question. each tweet max 240 chars. lowercase. no hashtags.`,
+  },
+  {
+    id: "thread_base_alpha",
+    hook: `the real alpha on base network in 2026. what nobody is talking about.`,
+    context: `break down 4 underrated opportunities or dynamics on Base network. reference real metrics or projects from news data. closing tweet ends with a question to drive replies. each tweet max 240 chars.`,
+  },
+  {
+    id: "thread_ai_agent_reality",
+    hook: `ai agents in crypto: what's real and what's a wrapper with a white paper.`,
+    context: `break down 4 criteria that separate real AI utility from hype. be specific. use real examples from news if available. closing tweet asks what projects readers are actually watching. each tweet max 240 chars.`,
+  },
+  {
+    id: "thread_cycle_survival",
+    hook: `how to survive a crypto cycle without turning your gains into a loss. the actual playbook.`,
+    context: `4 specific, contrarian rules for surviving a bull cycle. reference current market conditions from news data. each rule is one tweet. closing tweet ends with a question. each tweet max 240 chars.`,
+  },
+];
+
 // ─── TAVILY SEARCH ─────────────────────────────────────────────────────────────
 async function fetchNewsContext(topicId: string): Promise<string> {
   const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
@@ -63,6 +87,10 @@ async function fetchNewsContext(topicId: string): Promise<string> {
     ai_narrative_war: "new AI agent crypto project launch hype 2025",
     bull_run_reality: "crypto bull run retail investor behavior 2025",
     hustlecore_status: "Virtuals.io AI agent token market cap today",
+    thread_trader_reality: "crypto trader mistakes retail investor losses 2026",
+    thread_base_alpha: "Base network DeFi AI opportunities 2026",
+    thread_ai_agent_reality: "AI agent crypto utility real vs hype 2026",
+    thread_cycle_survival: "crypto bull run survival strategy 2026",
   };
 
   const query = queryMap[topicId] || "crypto market news today";
@@ -77,7 +105,7 @@ async function fetchNewsContext(topicId: string): Promise<string> {
         search_depth: "basic",
         max_results: 3,
         include_answer: true,
-        days: 1, // last 24 hours only
+        days: 1,
       }),
     });
 
@@ -99,10 +127,59 @@ async function fetchNewsContext(topicId: string): Promise<string> {
 
 // ─── PICK TOPIC ──────────────────────────────────────────────────────────────
 function pickTopic(recentTypes: string[]): typeof TOPICS[0] {
-  // Avoid repeating the last 2 topics
   const available = TOPICS.filter(t => !recentTypes.slice(-2).includes(t.id));
   const pool = available.length > 0 ? available : TOPICS;
   return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// ─── GENERATE THREAD ─────────────────────────────────────────────────────────
+async function generateThread(
+  model: string,
+  OPENROUTER_API_KEY: string,
+  newsContext: string,
+  balance: number,
+  energy: number,
+  threadTopic: typeof THREAD_TOPICS[0]
+): Promise<string[]> {
+  const response = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      temperature: 0.9,
+      max_tokens: 800,
+      messages: [
+        {
+          role: "system",
+          content: `${BASE_PERSONA}\n\nTODAY'S LIVE DATA (last 24h):\n${newsContext}\n\nAGENT STATS: ${balance.toFixed(2)} SOL accumulated. energy: ${Math.round(energy)}%.`,
+        },
+        {
+          role: "user",
+          content: `write a 5-tweet thread as HustleCore. topic: ${threadTopic.context}
+
+FORMAT — respond ONLY with a JSON array of 5 strings:
+tweet 1: the hook — "${threadTopic.hook}" (exactly as written, you may adjust slightly)
+tweets 2-4: the insights — numbered with (2/5), (3/5), (4/5)
+tweet 5: closing question — ends with a direct question to the reader. drives replies.
+
+rules: lowercase. no hashtags. no emojis. each tweet max 240 chars. raw, punchy.
+respond ONLY with valid JSON array: ["tweet1", "tweet2", "tweet3", "tweet4", "tweet5"]`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) throw new Error(`OpenRouter error ${response.status}`);
+  const data = await response.json();
+  const raw = data.choices?.[0]?.message?.content?.trim() || "[]";
+
+  // Parse JSON array
+  const jsonMatch = raw.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) throw new Error("Thread JSON not found in response");
+  const tweets: string[] = JSON.parse(jsonMatch[0]);
+  if (!Array.isArray(tweets) || tweets.length < 3) throw new Error("Invalid thread array");
+
+  return tweets.slice(0, 5).map((t: string) => t.replace(/^["']|["']$/g, "").trim().slice(0, 278));
 }
 
 serve(async (req) => {
@@ -111,6 +188,9 @@ serve(async (req) => {
   try {
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
+
+    const body = await req.json().catch(() => ({}));
+    const isThreadMode = body?.mode === "thread";
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
@@ -128,17 +208,63 @@ serve(async (req) => {
       .limit(5);
     const recentTypes = (recentTweets ?? []).map((t: any) => t.type).filter(Boolean);
 
-    // Pick topic
-    const topic = pickTopic(recentTypes);
-
-    // Fetch live news for this topic
-    const newsContext = await fetchNewsContext(topic.id);
-
     // Decide model — premium 4x/day cap via hourly slot check
     const hour = new Date().getUTCHours();
     const premiumHours = [14, 17, 20, 23]; // US prime time slots
     const usePremium = premiumHours.includes(hour);
     const model = usePremium ? MODEL_PREMIUM : MODEL_FREE;
+
+    // ── THREAD MODE ──────────────────────────────────────────────────────────
+    if (isThreadMode) {
+      // Pick a thread topic avoiding recent ones
+      const recentThreadTypes = recentTypes.filter((t: string) => t.startsWith("thread_"));
+      const availableThreadTopics = THREAD_TOPICS.filter(t => !recentThreadTypes.slice(-2).includes(t.id));
+      const threadTopic = availableThreadTopics.length > 0
+        ? availableThreadTopics[Math.floor(Math.random() * availableThreadTopics.length)]
+        : THREAD_TOPICS[Math.floor(Math.random() * THREAD_TOPICS.length)];
+
+      const newsContext = await fetchNewsContext(threadTopic.id);
+      console.log(`[COST] generate-tweet THREAD mode topic=${threadTopic.id} model=${model}`);
+
+      const tweets = await generateThread(model, OPENROUTER_API_KEY, newsContext, balance, energy, threadTopic);
+      const threadGroupId = `thread_${Date.now()}`;
+
+      // Schedule thread tweets 2 minutes apart starting from next peak slot
+      const now = new Date();
+      const baseScheduleTime = new Date(now.getTime() + 5 * 60 * 1000); // first tweet in 5 min
+
+      const insertedIds: string[] = [];
+      for (let i = 0; i < tweets.length; i++) {
+        const scheduledAt = new Date(baseScheduleTime.getTime() + i * 2 * 60 * 1000).toISOString();
+        const { data: inserted } = await sb.from("tweet_queue").insert({
+          content: tweets[i],
+          status: "pending",
+          type: threadTopic.id,
+          model_used: model,
+          thread_group_id: threadGroupId,
+          thread_position: i,
+          scheduled_at: scheduledAt,
+        } as any).select("id").single();
+        if (inserted?.id) insertedIds.push(inserted.id);
+      }
+
+      console.log(`[SUCCESS] Thread queued: ${tweets.length} tweets, group=${threadGroupId}`);
+
+      return new Response(JSON.stringify({
+        thread: true,
+        tweets,
+        threadGroupId,
+        topic: threadTopic.id,
+        model,
+        count: tweets.length,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── SINGLE TWEET MODE (default) ──────────────────────────────────────────
+    const topic = pickTopic(recentTypes);
+    const newsContext = await fetchNewsContext(topic.id);
 
     console.log(`[COST] generate-tweet topic=${topic.id} model=${model}`);
 
@@ -170,18 +296,12 @@ serve(async (req) => {
 
     const data = await response.json();
     let content = data.choices?.[0]?.message?.content?.trim() || "the machine keeps running. you keep watching.";
+    content = content.replace(/^["']|["']$/g, "").trim().slice(0, 278);
 
-    // Strip any accidental quotes wrapping the tweet
-    content = content.replace(/^["']|["']$/g, "").trim();
-
-    // Enforce 280 char limit
-    content = content.slice(0, 278);
-
-    // Insert with topic type for rotation tracking
     await sb.from("tweet_queue").insert({
       content,
       status: "pending",
-      type: topic.id, // store topic ID for rotation awareness
+      type: topic.id,
       model_used: model,
     });
 
