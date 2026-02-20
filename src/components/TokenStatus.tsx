@@ -82,7 +82,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
         {isLoading ? (
           <Shimmer />
         ) : isError || marketCap === null ? (
-          <span className="text-muted-foreground font-bold">N/A</span>
+          <span className="text-muted-foreground/60 font-bold animate-pulse">SYNCING...</span>
         ) : (
           <motion.span
             className={marketCapClass}
