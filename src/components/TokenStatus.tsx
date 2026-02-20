@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
+import { RefreshCw } from "lucide-react";
 import { VIRTUALS_URL } from "./CountdownBanner";
 import { useTokenData } from "@/hooks/useTokenData";
 import { cn } from "@/lib/utils";
@@ -14,8 +15,16 @@ const Shimmer = () => (
 );
 
 const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
-  const { marketCap, bondingCurvePercent, priceChangeH24, isLoading, isError, formatMarketCap } =
-    useTokenData(onMilestone);
+  const {
+    marketCap,
+    bondingCurvePercent,
+    priceChangeH24,
+    isLoading,
+    isError,
+    donationsFallback,
+    formatMarketCap,
+    refetch,
+  } = useTokenData(onMilestone);
 
   // Bubble market cap up to parent for neural suggestions
   const prevMcRef = useRef<number | null>(null);
@@ -45,6 +54,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >
+      {/* Label + LIVE indicator */}
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground tracking-widest">$HCORE TOKEN</span>
         {!isLoading && !isError ? (
@@ -56,16 +66,23 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
             <span className="text-[9px] text-neon-green font-bold tracking-widest">LIVE</span>
           </span>
         ) : isError ? (
-          <span className="text-destructive/60 text-[9px]">OFFLINE</span>
+          <span className="inline-flex items-center gap-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive" />
+            </span>
+            <span className="text-[9px] text-destructive font-bold tracking-widest">OFFLINE</span>
+          </span>
         ) : null}
       </div>
 
+      {/* Market Cap */}
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground">Market Cap:</span>
         {isLoading ? (
           <Shimmer />
         ) : isError || marketCap === null ? (
-          <span className="text-neon-cyan font-bold">$---</span>
+          <span className="text-muted-foreground font-bold">N/A</span>
         ) : (
           <motion.span
             className={marketCapClass}
@@ -77,13 +94,14 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
             {formatMarketCap(marketCap)}
           </motion.span>
         )}
-        {priceChangeH24 !== null && !isLoading && (
+        {priceChangeH24 !== null && !isLoading && !isError && (
           <span className={cn("text-[9px]", isUp ? "text-neon-green" : isDown ? "text-destructive" : "text-muted-foreground")}>
             ({isUp ? "+" : ""}{priceChangeH24.toFixed(1)}%)
           </span>
         )}
       </div>
 
+      {/* Bonding Curve */}
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground">Bonding Curve:</span>
         {isLoading ? (
@@ -98,11 +116,20 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.4 }}
           >
-            {bondingCurvePercent.toFixed(1)}%
+            {bondingCurvePercent.toFixed(2)}%
           </motion.span>
         )}
       </div>
 
+      {/* Donations fallback when DEX fails */}
+      {isError && donationsFallback !== null && donationsFallback > 0 && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">Community Raised:</span>
+          <span className="text-neon-cyan font-bold">{donationsFallback.toFixed(3)} SOL</span>
+        </div>
+      )}
+
+      {/* MIGRATION IMMINENT */}
       {bondingCurvePercent !== null && bondingCurvePercent >= 80 && !isLoading && (
         <motion.span
           className="text-[9px] text-yellow-400 font-bold tracking-wider"
@@ -112,6 +139,18 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
           ⚡ MIGRATION IMMINENT
         </motion.span>
       )}
+
+      {/* Manual refresh button */}
+      <button
+        onClick={(e) => { e.preventDefault(); refetch(); }}
+        className={cn(
+          "ml-auto p-1 rounded text-muted-foreground hover:text-neon-cyan transition-colors",
+          isLoading && "animate-spin text-neon-cyan"
+        )}
+        title="Force refresh"
+      >
+        <RefreshCw size={10} />
+      </button>
     </motion.a>
   );
 };
