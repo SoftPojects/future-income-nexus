@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { RefreshCw } from "lucide-react";
 import { VIRTUALS_URL } from "./CountdownBanner";
 import { useTokenData } from "@/hooks/useTokenData";
@@ -11,12 +11,13 @@ interface TokenStatusProps {
 }
 
 const Shimmer = () => (
-  <span className="inline-block w-12 h-3 rounded bg-muted/60 animate-pulse align-middle" />
+  <span className="inline-block w-16 h-3 rounded bg-muted/60 animate-pulse align-middle" />
 );
 
 const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
   const {
     marketCap,
+    priceUsd,
     bondingCurvePercent,
     priceChangeH24,
     isLoading,
@@ -26,23 +27,46 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
     refetch,
   } = useTokenData(onMilestone);
 
-  // Bubble market cap up to parent for neural suggestions
+  // Flash border on every successful fetch
+  const [pulse, setPulse] = useState(false);
   const prevMcRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (marketCap !== prevMcRef.current) {
+    if (marketCap !== null && marketCap !== prevMcRef.current) {
       prevMcRef.current = marketCap;
       onMarketCapChange?.(marketCap);
+      // trigger cyan border flash
+      setPulse(true);
+      const t = setTimeout(() => setPulse(false), 800);
+      return () => clearTimeout(t);
     }
   }, [marketCap, onMarketCapChange]);
 
-  const isUp = priceChangeH24 !== null && priceChangeH24 > 0;
-  const isDown = priceChangeH24 !== null && priceChangeH24 < 0;
+  // 24h change classification
+  const isStable =
+    priceChangeH24 !== null &&
+    priceChangeH24 > -0.5 &&
+    priceChangeH24 < 0.5;
+  const isUp   = priceChangeH24 !== null && priceChangeH24 >= 0.5;
+  const isDown = priceChangeH24 !== null && priceChangeH24 <= -0.5;
+
+  const changeLabel = isStable
+    ? "STABLE"
+    : `${isUp ? "+" : ""}${priceChangeH24?.toFixed(2) ?? "0.00"}%`;
+
+  const changeClass = cn(
+    "text-[9px] font-bold",
+    isUp && "text-neon-green",
+    isDown && "text-destructive",
+    isStable && "text-yellow-400"
+  );
 
   const marketCapClass = cn(
-    "font-bold transition-colors duration-700",
+    "font-bold transition-colors duration-700 tabular-nums",
     isUp && "text-neon-green drop-shadow-[0_0_8px_hsl(var(--neon-green))]",
     isDown && "text-destructive drop-shadow-[0_0_8px_hsl(var(--destructive))]",
-    !isUp && !isDown && "text-neon-cyan"
+    isStable && "text-yellow-400",
+    !isUp && !isDown && !isStable && "text-neon-cyan"
   );
 
   return (
@@ -50,11 +74,16 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
       href={VIRTUALS_URL}
       target="_blank"
       rel="noopener noreferrer"
-      className="glass rounded-lg px-4 py-3 flex items-center gap-6 text-[10px] font-mono border border-neon-magenta/20 hover:border-neon-magenta/40 transition-colors cursor-pointer block flex-wrap"
+      className={cn(
+        "glass rounded-lg px-4 py-3 flex items-center gap-6 text-[10px] font-mono border transition-all duration-300 cursor-pointer block flex-wrap",
+        pulse
+          ? "border-neon-cyan shadow-[0_0_12px_hsl(var(--neon-cyan)/0.5)]"
+          : "border-neon-magenta/20 hover:border-neon-magenta/40"
+      )}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      {/* Label + LIVE indicator */}
+      {/* Label + LIVE / OFFLINE indicator */}
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground tracking-widest">$HCORE TOKEN</span>
         {!isLoading && !isError ? (
@@ -76,27 +105,35 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
         ) : null}
       </div>
 
-      {/* Market Cap */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">Market Cap:</span>
-        {isLoading ? (
-          <Shimmer />
-        ) : isError || marketCap === null ? (
-          <span className="text-muted-foreground/60 font-bold animate-pulse">SYNCING...</span>
-        ) : (
-          <motion.span
-            className={marketCapClass}
-            key={marketCap}
-            initial={{ opacity: 0.6, scale: 0.97 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.4 }}
-          >
-            {formatMarketCap(marketCap)}
-          </motion.span>
-        )}
-        {priceChangeH24 !== null && !isLoading && !isError && (
-          <span className={cn("text-[9px]", isUp ? "text-neon-green" : isDown ? "text-destructive" : "text-muted-foreground")}>
-            ({isUp ? "+" : ""}{priceChangeH24.toFixed(1)}%)
+      {/* Market Cap + raw price */}
+      <div className="flex flex-col gap-0.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-muted-foreground">Market Cap:</span>
+          {isLoading ? (
+            <Shimmer />
+          ) : isError || marketCap === null ? (
+            <span className="text-muted-foreground/60 font-bold animate-pulse">SYNCING...</span>
+          ) : (
+            <motion.span
+              className={marketCapClass}
+              key={marketCap}
+              initial={{ opacity: 0.6, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.4 }}
+            >
+              {formatMarketCap(marketCap)}
+            </motion.span>
+          )}
+          {priceChangeH24 !== null && !isLoading && !isError && (
+            <span className={changeLabel === "STABLE" ? changeClass : cn(changeClass, "opacity-90")}>
+              ({changeLabel})
+            </span>
+          )}
+        </div>
+        {/* Raw price sub-label */}
+        {priceUsd !== null && !isLoading && !isError && (
+          <span className="text-[8px] text-muted-foreground/50 tabular-nums">
+            Price: ${priceUsd.toFixed(9).replace(/0+$/, "").replace(/\.$/, "")}
           </span>
         )}
       </div>
@@ -110,7 +147,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
           <span className="text-neon-magenta font-bold">--%</span>
         ) : (
           <motion.span
-            className="text-neon-magenta font-bold"
+            className="text-neon-magenta font-bold tabular-nums"
             key={bondingCurvePercent}
             initial={{ opacity: 0.6 }}
             animate={{ opacity: 1 }}
@@ -120,6 +157,13 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
           </motion.span>
         )}
       </div>
+
+      {/* Prototype mode label (low liquidity phase) */}
+      {!isError && !isLoading && (
+        <span className="text-[8px] text-yellow-400/60 tracking-wider border border-yellow-400/20 rounded px-1 py-0.5">
+          VIRTUALS PROTOTYPE MODE
+        </span>
+      )}
 
       {/* Donations fallback when DEX fails */}
       {isError && donationsFallback !== null && donationsFallback > 0 && (
