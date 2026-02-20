@@ -18,9 +18,13 @@ export interface TokenData {
 }
 
 export function formatMarketCap(value: number): string {
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(2)}K`;
-  return `$${value.toFixed(0)}`;
+  if (value >= 1_000_000) {
+    return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 1_000_000)}M`;
+  }
+  if (value >= 1_000) {
+    return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 1_000)}K`;
+  }
+  return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)}`;
 }
 
 async function fetchDonationsFallback(): Promise<number | null> {
@@ -70,27 +74,34 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       return null;
     }
 
-    // Among valid pairs, pick the one with highest liquidity (most active market)
+    // Log every pair so we can diagnose which one has the real price
+    filtered.forEach((p, i) => {
+      console.log(
+        `[DEX] pair[${i}]: dex=${p.dexId} | priceUsd=${p.priceUsd} | liquidity=$${p.liquidity?.usd} | h24=${p.priceChange?.h24}%`
+      );
+    });
+
+    // Use the pair with the highest priceUsd (most accurate price discovery)
     const best = filtered.reduce((a, b) =>
-      Number(b.liquidity?.usd ?? 0) > Number(a.liquidity?.usd ?? 0) ? b : a
+      parseFloat(String(b.priceUsd ?? "0")) > parseFloat(String(a.priceUsd ?? "0")) ? b : a
     );
 
-    // Parse price from raw string — preserves full decimal precision
-    const rawPriceStr = String(best.priceUsd ?? "0");
-    const priceUsd = parseFloat(rawPriceStr);
+    // Read raw string — NO Number() conversion until after multiplication
+    const rawPrice = String(best.priceUsd ?? "0");
+    const mcap = parseFloat(rawPrice) * TOTAL_SUPPLY;
 
-    // Market Cap = price × total supply (no rounding until display layer)
-    const calculatedMarketCap = priceUsd * TOTAL_SUPPLY;
+    console.log("CRITICAL_DEBUG_PRICE:", rawPrice);
+    console.log("CRITICAL_DEBUG_MCAP:", mcap);
 
-    // Use h24 directly from raw string; fall back to h6
+    if (Math.round(mcap) === 5000) {
+      console.warn("WARNING: DATA MIGHT BE ROUNDED — mcap is suspiciously exactly 5000");
+    }
+
     const rawH24 = best.priceChange?.h24;
-    const rawH6 = best.priceChange?.h6;
+    const rawH6  = best.priceChange?.h6;
     const priceChangeH24 = parseFloat(String(rawH24 ?? rawH6 ?? "0"));
 
-    console.log(`RAW_PRICE: ${rawPriceStr}, CALCULATED_MCAP: ${calculatedMarketCap}`);
-    console.log(`[DEX] pair=${best.dexId} | liquidity=$${best.liquidity?.usd} | 24h=${priceChangeH24}%`);
-
-    return { fdv: calculatedMarketCap, priceUsd, priceChangeH24 };
+    return { fdv: mcap, priceUsd: parseFloat(rawPrice), priceChangeH24 };
   } catch (err) {
     console.error("[DEX] Fetch error:", err);
     return null;
