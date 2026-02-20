@@ -1145,13 +1145,20 @@ const HustleAdmin = () => {
                       const { data, error } = await supabase.functions.invoke("social-pulse", { body: { forceFollow: true } });
                       if (error) throw error;
                       const action = data?.action || "error";
-                      const msg = action === "follow" ? `Followed @${data?.target}` : action === "error" ? `Error: ${data?.reason}` : `Skipped: ${data?.reason}`;
-                      toast({ title: `FORCE FOLLOW: ${action.toUpperCase()}`, description: msg });
+                      const target = data?.target ? `@${data.target}` : "";
+                      const reason = data?.reason || "";
+                      if (action === "follow") {
+                        toast({ title: `✅ FOLLOWED ${target}`, description: reason });
+                      } else if (action === "error") {
+                        toast({ title: `❌ FOLLOW FAILED`, description: reason, variant: "destructive" });
+                      } else {
+                        toast({ title: `FORCE FOLLOW: ${action.toUpperCase()}`, description: reason || `Skipped ${target}` });
+                      }
                       fetchSocialLogs(); fetchDailyQuota(); fetchNextTargets();
                     } catch (e) { toast({ title: "Force follow failed", description: String(e), variant: "destructive" }); }
                     finally { setForceFollowing(false); }
                   }} disabled={forceFollowing || pulseRunning} size="sm" className="bg-neon-magenta/10 border border-neon-magenta/30 text-neon-magenta hover:bg-neon-magenta/20">
-                    {forceFollowing ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Following...</> : <>🎯 FORCE FOLLOW</>}
+                    {forceFollowing ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> COMMUNICATING WITH X GRID...</> : <>🎯 FORCE FOLLOW</>}
                   </Button>
                 </NeuralTooltip>
                 <NeuralTooltip content="Forces an immediate autonomous cycle. Triggers X-scanning, terminal log generation, and scheduled social actions without waiting for the next timer tick.">
