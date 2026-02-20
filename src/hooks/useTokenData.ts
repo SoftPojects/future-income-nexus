@@ -17,14 +17,16 @@ export interface TokenData {
   donationsFallback: number | null; // total SOL donated, shown when DEX fails
 }
 
+// Show full dollars+cents for values under $50K so the display moves visibly
 export function formatMarketCap(value: number): string {
   if (value >= 1_000_000) {
     return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 1_000_000)}M`;
   }
-  if (value >= 1_000) {
+  if (value >= 50_000) {
     return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 1_000)}K`;
   }
-  return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)}`;
+  // Below $50K: show full amount with commas and 2 decimal places
+  return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
 }
 
 async function fetchDonationsFallback(): Promise<number | null> {
