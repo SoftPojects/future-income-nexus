@@ -308,9 +308,11 @@ serve(async (req) => {
     if (action === "idle") {
       console.log("[PULSE] Idling this cycle.");
       // Log the idle cycle so admins can see the function fired
-      await sb.from("agent_logs").insert({
-        message: `[SYSTEM]: Neural rest cycle. No actions taken. (follows: ${quota.follows_count}/${quota.follows_limit}, likes: ${quota.likes_count}/${quota.likes_limit})`,
-      }).catch(() => {});
+      try {
+        await sb.from("agent_logs").insert({
+          message: `[SYSTEM]: Neural rest cycle. No actions taken. (follows: ${quota.follows_count}/${quota.follows_limit}, likes: ${quota.likes_count}/${quota.likes_limit})`,
+        });
+      } catch { /* non-critical */ }
       return new Response(JSON.stringify({ action: "idle", reason: "20% idle probability or quotas full" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -389,7 +391,7 @@ serve(async (req) => {
         if (!targetUserId) {
           const errMsg = `[PULSE ERROR]: @${target.x_handle} — X lookup failed (handle may be invalid/suspended)`;
           console.warn(errMsg);
-          await sb.from("agent_logs").insert({ message: errMsg }).catch(() => {});
+          try { await sb.from("agent_logs").insert({ message: errMsg }); } catch { /* non-critical */ }
           return new Response(JSON.stringify({ action: "skipped", reason: `handle not found: @${target.x_handle}` }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -420,13 +422,15 @@ serve(async (req) => {
           const shortError = (followResult.errorDetail || "unknown error").slice(0, 500);
           const errMsg = `[X API ERROR]: Follow @${target.x_handle} FAILED — ${shortError}`;
           console.error(errMsg);
-          await sb.from("agent_logs").insert({ message: errMsg }).catch(() => {});
-          await sb.from("social_logs").insert({
-            target_handle: target.x_handle,
-            action_type: "follow_error",
-            source: isForceFollow ? "force_follow" : "auto_pulse",
-            reason: shortError.slice(0, 200),
-          }).catch(() => {});
+          try { await sb.from("agent_logs").insert({ message: errMsg }); } catch { /* non-critical */ }
+          try {
+            await sb.from("social_logs").insert({
+              target_handle: target.x_handle,
+              action_type: "follow_error",
+              source: isForceFollow ? "force_follow" : "auto_pulse",
+              reason: shortError.slice(0, 200),
+            });
+          } catch { /* non-critical */ }
           return new Response(JSON.stringify({ action: "error", target: target.x_handle, reason: shortError }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
             status: 200, // Return 200 so frontend can read the body and show the real error
@@ -438,9 +442,11 @@ serve(async (req) => {
     // ─── STEP 3: LIKE action ───
     if (likesRemaining <= 0) {
       console.log(`[PULSE] Like quota full (${quota.likes_count}/${quota.likes_limit}). Idling.`);
-      await sb.from("agent_logs").insert({
-        message: `[SYSTEM]: Neural rest cycle. No actions taken. (follows: ${quota.follows_count}/${quota.follows_limit}, likes: ${quota.likes_count}/${quota.likes_limit})`,
-      }).catch(() => {});
+      try {
+        await sb.from("agent_logs").insert({
+          message: `[SYSTEM]: Neural rest cycle. No actions taken. (follows: ${quota.follows_count}/${quota.follows_limit}, likes: ${quota.likes_count}/${quota.likes_limit})`,
+        });
+      } catch { /* non-critical */ }
       return new Response(JSON.stringify({ action: "idle", reason: "daily like quota reached" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
