@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 
 const TOKEN_ADDRESS = "0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
 const BASE_API_URL = `https://api.dexscreener.com/latest/dex/tokens/${TOKEN_ADDRESS}`;
-const MIGRATION_MARKET_CAP = 50000; // Virtuals Protocol migration threshold in USD
+const TOTAL_SUPPLY = 1_000_000_000; // $HCORE fixed total supply
+const MIGRATION_MARKET_CAP = 50_000; // Virtuals Protocol migration threshold in USD
 const FETCH_INTERVAL_MS = 30_000; // 30 seconds
 
 export interface TokenData {
@@ -74,15 +75,20 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       Number(b.liquidity?.usd ?? 0) > Number(a.liquidity?.usd ?? 0) ? b : a
     );
 
-    // Prefer marketCap field; fall back to fdv
-    const marketCap = Number(best.marketCap ?? best.fdv ?? 0);
+    // Calculate market cap manually: price × total supply (more accurate than API fdv)
     const priceUsd = Number(best.priceUsd ?? 0);
-    const priceChangeH24 = Number(best.priceChange?.h24 ?? 0);
+    const calculatedMarketCap = priceUsd * TOTAL_SUPPLY;
+    // Use h24 change; fall back to h6 if h24 is missing/zero
+    const priceChangeH24 = Number(
+      best.priceChange?.h24 ?? best.priceChange?.h6 ?? 0
+    );
 
     console.log(
-      `[DEX] Selected pair: ${best.dexId} | marketCap=$${marketCap} | price=$${priceUsd} | 24h=${priceChangeH24}% | liquidity=$${best.liquidity?.usd}`
+      `[DEX] pair=${best.dexId} | priceUsd=$${priceUsd} | liquidity=$${best.liquidity?.usd} | 24h=${priceChangeH24}%`
     );
-    return { fdv: marketCap, priceUsd, priceChangeH24 };
+    console.log(`CALCULATED_MCAP: $${calculatedMarketCap.toFixed(2)} (${priceUsd} × ${TOTAL_SUPPLY})`);
+
+    return { fdv: calculatedMarketCap, priceUsd, priceChangeH24 };
   } catch (err) {
     console.error("[DEX] Fetch error:", err);
     return null;
