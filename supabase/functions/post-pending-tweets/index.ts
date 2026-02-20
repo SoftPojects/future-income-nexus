@@ -34,7 +34,153 @@ async function generateOAuthSignature(
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-async function postToTwitter(text: string, replyToId?: string): Promise<{ success: boolean; tweetId?: string; error?: string }> {
+async function getOAuthHeader(method: string, url: string): Promise<string> {
+  const consumerKey = Deno.env.get("X_API_KEY")!;
+  const consumerSecret = Deno.env.get("X_API_SECRET")!;
+  const accessToken = Deno.env.get("X_ACCESS_TOKEN")!;
+  const accessTokenSecret = Deno.env.get("X_ACCESS_SECRET")!;
+
+  const nonce = crypto.randomUUID().replace(/-/g, "");
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+
+  const oauthParams: Record<string, string> = {
+    oauth_consumer_key: consumerKey,
+    oauth_nonce: nonce,
+    oauth_signature_method: "HMAC-SHA1",
+    oauth_timestamp: timestamp,
+    oauth_token: accessToken,
+    oauth_version: "1.0",
+  };
+
+  const signature = await generateOAuthSignature(method, url, oauthParams, consumerSecret, accessTokenSecret);
+  oauthParams.oauth_signature = signature;
+
+  return "OAuth " + Object.keys(oauthParams).sort().map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`).join(", ");
+}
+
+// Upload media to Twitter v1.1 chunked upload (INIT -> APPEND -> FINALIZE)
+async function uploadMediaToTwitter(mediaUrl: string, mediaType: "image" | "video"): Promise<{ success: boolean; mediaId?: string; error?: string }> {
+  try {
+    console.log(`[MEDIA UPLOAD] Downloading from: ${mediaUrl}`);
+    const mediaResp = await fetch(mediaUrl);
+    if (!mediaResp.ok) throw new Error(`Failed to download media: ${mediaResp.status}`);
+    const mediaBuffer = await mediaResp.arrayBuffer();
+    const mediaBytes = new Uint8Array(mediaBuffer);
+    const totalBytes = mediaBytes.length;
+    console.log(`[MEDIA UPLOAD] Downloaded ${totalBytes} bytes`);
+
+    const contentType = mediaType === "video" ? "video/mp4" : "image/jpeg";
+    const mediaCategory = mediaType === "video" ? "tweet_video" : "tweet_image";
+    const uploadUrl = "https://upload.twitter.com/1.1/media/upload.json";
+
+    // INIT
+    const initParams = new URLSearchParams({
+      command: "INIT",
+      total_bytes: totalBytes.toString(),
+      media_type: contentType,
+      media_category: mediaCategory,
+    });
+
+    const initAuthHeader = await getOAuthHeader("POST", uploadUrl);
+    const initResp = await fetch(`${uploadUrl}?${initParams.toString()}`, {
+      method: "POST",
+      headers: { Authorization: initAuthHeader },
+    });
+
+    if (!initResp.ok) {
+      const err = await initResp.text();
+      console.error("[MEDIA UPLOAD] INIT failed:", err);
+      throw new Error(`Media INIT failed: ${initResp.status} ${err}`);
+    }
+
+    const initData = await initResp.json();
+    const mediaId = initData.media_id_string;
+    console.log(`[MEDIA UPLOAD] INIT success. media_id: ${mediaId}`);
+
+    // APPEND (1MB chunks)
+    const chunkSize = 1 * 1024 * 1024;
+    let segmentIndex = 0;
+    for (let offset = 0; offset < totalBytes; offset += chunkSize) {
+      const chunk = mediaBytes.slice(offset, offset + chunkSize);
+      const boundary = `----TwitterMediaUpload${Date.now()}`;
+      const formParts: Uint8Array[] = [];
+      const enc = new TextEncoder();
+      formParts.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="command"\r\n\r\nAPPEND\r\n`));
+      formParts.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="media_id"\r\n\r\n${mediaId}\r\n`));
+      formParts.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="segment_index"\r\n\r\n${segmentIndex}\r\n`));
+      formParts.push(enc.encode(`--${boundary}\r\nContent-Disposition: form-data; name="media"; filename="media"\r\nContent-Type: application/octet-stream\r\n\r\n`));
+      formParts.push(chunk);
+      formParts.push(enc.encode(`\r\n--${boundary}--\r\n`));
+
+      const totalLength = formParts.reduce((s, p) => s + p.length, 0);
+      const body = new Uint8Array(totalLength);
+      let pos = 0;
+      for (const part of formParts) { body.set(part, pos); pos += part.length; }
+
+      const appendAuthHeader = await getOAuthHeader("POST", uploadUrl);
+      const appendResp = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { Authorization: appendAuthHeader, "Content-Type": `multipart/form-data; boundary=${boundary}` },
+        body,
+      });
+
+      if (!appendResp.ok && appendResp.status !== 204) {
+        const err = await appendResp.text();
+        throw new Error(`Media APPEND failed at segment ${segmentIndex}: ${appendResp.status} ${err}`);
+      }
+      console.log(`[MEDIA UPLOAD] APPEND chunk ${segmentIndex} OK`);
+      segmentIndex++;
+    }
+
+    // FINALIZE
+    const finalizeParams = new URLSearchParams({ command: "FINALIZE", media_id: mediaId });
+    const finalizeAuthHeader = await getOAuthHeader("POST", uploadUrl);
+    const finalizeResp = await fetch(`${uploadUrl}?${finalizeParams.toString()}`, {
+      method: "POST",
+      headers: { Authorization: finalizeAuthHeader },
+    });
+
+    if (!finalizeResp.ok) {
+      const err = await finalizeResp.text();
+      throw new Error(`Media FINALIZE failed: ${finalizeResp.status} ${err}`);
+    }
+
+    const finalizeData = await finalizeResp.json();
+    console.log(`[MEDIA UPLOAD] FINALIZE success. Processing info:`, JSON.stringify(finalizeData.processing_info));
+
+    // Poll for video processing
+    if (mediaType === "video" && finalizeData.processing_info) {
+      let state = finalizeData.processing_info.state;
+      let attempts = 0;
+      while (state === "pending" || state === "in_progress") {
+        if (attempts++ > 30) throw new Error("Media processing timed out");
+        const waitMs = (finalizeData.processing_info.check_after_secs || 5) * 1000;
+        console.log(`[MEDIA UPLOAD] Video processing state: ${state}, waiting ${waitMs}ms...`);
+        await new Promise((r) => setTimeout(r, waitMs));
+
+        const statusAuthHeader = await getOAuthHeader("GET", uploadUrl);
+        const statusResp = await fetch(`${uploadUrl}?command=STATUS&media_id=${mediaId}`, {
+          headers: { Authorization: statusAuthHeader },
+        });
+        const statusData = await statusResp.json();
+        state = statusData.processing_info?.state;
+        console.log(`[MEDIA UPLOAD] Video processing state now: ${state}`);
+        if (state === "failed") throw new Error("Video processing failed: " + JSON.stringify(statusData.processing_info?.error));
+      }
+      console.log("[MEDIA UPLOAD] Video processing succeeded!");
+    }
+
+    return { success: true, mediaId };
+  } catch (e) {
+    console.error("[MEDIA UPLOAD] Error:", e);
+    return { success: false, error: e instanceof Error ? e.message : "Unknown media upload error" };
+  }
+}
+
+async function postToTwitter(
+  text: string,
+  options: { replyToId?: string; imageUrl?: string | null; videoUrl?: string | null } = {}
+): Promise<{ success: boolean; tweetId?: string; error?: string }> {
   const consumerKey = Deno.env.get("X_API_KEY");
   const consumerSecret = Deno.env.get("X_API_SECRET");
   const accessToken = Deno.env.get("X_ACCESS_TOKEN");
@@ -42,6 +188,33 @@ async function postToTwitter(text: string, replyToId?: string): Promise<{ succes
 
   if (!consumerKey || !consumerSecret || !accessToken || !accessTokenSecret) {
     return { success: false, error: "X API credentials not configured" };
+  }
+
+  const { imageUrl, videoUrl, replyToId } = options;
+
+  // Upload media — video takes priority
+  let mediaId: string | undefined;
+  if (videoUrl) {
+    console.log("[POST TWEET] Uploading video...");
+    const uploadResult = await uploadMediaToTwitter(videoUrl, "video");
+    if (uploadResult.success && uploadResult.mediaId) {
+      mediaId = uploadResult.mediaId;
+      console.log("[POST TWEET] Video uploaded, media_id:", mediaId);
+    } else {
+      console.warn("[POST TWEET] Video upload failed, trying image fallback:", uploadResult.error);
+      if (imageUrl) {
+        const imgResult = await uploadMediaToTwitter(imageUrl, "image");
+        if (imgResult.success && imgResult.mediaId) mediaId = imgResult.mediaId;
+      }
+    }
+  } else if (imageUrl) {
+    console.log("[POST TWEET] Uploading image...");
+    const uploadResult = await uploadMediaToTwitter(imageUrl, "image");
+    if (uploadResult.success && uploadResult.mediaId) {
+      mediaId = uploadResult.mediaId;
+    } else {
+      console.warn("[POST TWEET] Image upload failed, posting text-only:", uploadResult.error);
+    }
   }
 
   const url = "https://api.x.com/2/tweets";
@@ -64,16 +237,14 @@ async function postToTwitter(text: string, replyToId?: string): Promise<{ succes
   const authHeader = "OAuth " + Object.keys(oauthParams).sort().map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`).join(", ");
 
   const body: any = { text };
-  if (replyToId) {
-    body.reply = { in_reply_to_tweet_id: replyToId };
-  }
+  if (replyToId) body.reply = { in_reply_to_tweet_id: replyToId };
+  if (mediaId) body.media = { media_ids: [mediaId] };
+
+  console.log("[POST TWEET] Posting to X with body:", JSON.stringify({ text: text.slice(0, 50), hasMedia: !!mediaId, mediaId }));
 
   const resp = await fetch(url, {
     method,
-    headers: {
-      Authorization: authHeader,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: authHeader, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
@@ -184,24 +355,36 @@ serve(async (req) => {
       }
     }
 
+    // Fetch media assets (video takes priority over image)
+    const { data: mediaAsset } = await sb
+      .from("media_assets")
+      .select("video_url, image_url, status")
+      .eq("tweet_id", tweetToPost.id)
+      .maybeSingle();
+
+    const imageUrl = (tweetToPost as any).image_url || mediaAsset?.image_url || null;
+    const videoUrl = (mediaAsset?.video_url && mediaAsset.status === "completed") ? mediaAsset.video_url : null;
+
+    console.log(`[POST PENDING] Tweet: ${tweetToPost.id} | image: ${!!imageUrl} | video: ${!!videoUrl}`);
+
     // Check if this is a reply to another tweet
     const replyToId = (tweetToPost as any).reply_to_tweet_id || undefined;
 
-    // Post the tweet
-    let result = await postToTwitter(finalContent, replyToId);
+    // Post the tweet with media
+    let result = await postToTwitter(finalContent, { imageUrl, videoUrl, replyToId });
 
     // If 403 and content has @ mentions, try soft-tag formats before stripping
     if (!result.success && result.error?.includes("403") && finalContent.includes("@")) {
       console.log("403 with @ mentions detected, trying soft-tag format...");
       let softContent = finalContent.replace(/@(\w+)/g, ". @$1");
-      result = await postToTwitter(softContent, replyToId);
+      result = await postToTwitter(softContent, { imageUrl, videoUrl, replyToId });
       if (result.success) {
         finalContent = softContent;
         await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
       } else {
         console.log("Soft-tag failed, stripping @ symbols...");
         const strippedContent = finalContent.replace(/@(\w+)/g, "$1");
-        result = await postToTwitter(strippedContent, replyToId);
+        result = await postToTwitter(strippedContent, { imageUrl, videoUrl, replyToId });
         if (result.success) {
           finalContent = strippedContent;
           await sb.from("tweet_queue").update({ content: finalContent }).eq("id", tweetToPost.id);
