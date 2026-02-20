@@ -202,6 +202,13 @@ const HustleAdmin = () => {
   const [watchdogLastResult, setWatchdogLastResult] = useState<any | null>(null);
   const [watchdogTargetLog, setWatchdogTargetLog] = useState<string | null>(null);
 
+  // Token Override state
+  const [overrideEnabled, setOverrideEnabled] = useState(false);
+  const [overridePrice, setOverridePrice] = useState("0.00000529");
+  const [overrideChangeH24, setOverrideChangeH24] = useState("20.13");
+  const [overrideSaving, setOverrideSaving] = useState(false);
+  const [overrideLoaded, setOverrideLoaded] = useState(false);
+
   // VIP Sniper state
   const [vipTargets, setVipTargets] = useState<any[]>([]);
   const [vipReplyLogs, setVipReplyLogs] = useState<any[]>([]);
@@ -274,6 +281,41 @@ const HustleAdmin = () => {
     if (data) setVipReplyLogs(data as any[]);
   }, []);
 
+  // ─── TOKEN OVERRIDE LOAD ───
+  const loadTokenOverride = useCallback(async () => {
+    const { data } = await supabase
+      .from("system_settings")
+      .select("key, value")
+      .in("key", ["token_override_enabled", "token_override_price", "token_override_change_h24"]);
+    if (data) {
+      const map: Record<string, string> = {};
+      data.forEach((r: any) => { map[r.key] = r.value; });
+      setOverrideEnabled(map["token_override_enabled"] === "true");
+      if (map["token_override_price"]) setOverridePrice(map["token_override_price"]);
+      if (map["token_override_change_h24"]) setOverrideChangeH24(map["token_override_change_h24"]);
+    }
+    setOverrideLoaded(true);
+  }, []);
+
+  const saveTokenOverride = async () => {
+    setOverrideSaving(true);
+    try {
+      const rows = [
+        { key: "token_override_enabled", value: overrideEnabled ? "true" : "false" },
+        { key: "token_override_price", value: overridePrice },
+        { key: "token_override_change_h24", value: overrideChangeH24 },
+      ];
+      for (const row of rows) {
+        await supabase.from("system_settings").upsert(row, { onConflict: "key" });
+      }
+      toast({ title: "Token Override Saved", description: overrideEnabled ? `Price: $${overridePrice} | 24h: ${overrideChangeH24}%` : "Override disabled — live DexScreener data will be used." });
+    } catch (e) {
+      toast({ title: "Save failed", description: String(e), variant: "destructive" });
+    } finally {
+      setOverrideSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
@@ -286,6 +328,7 @@ const HustleAdmin = () => {
       fetchDailyQuota();
       fetchVipTargets();
       fetchVipReplyLogs();
+      loadTokenOverride();
 
       // Realtime for media_assets + social_logs + daily quota + vip_reply_logs
       const channel = supabase
@@ -297,7 +340,7 @@ const HustleAdmin = () => {
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs]);
+  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs, loadTokenOverride]);
 
   // ─── VIP SNIPER HANDLERS ───
   const handleFlashSnipe = async (dryRun = false, targetHandle?: string) => {
@@ -885,6 +928,9 @@ const HustleAdmin = () => {
             </TabsTrigger>
             <TabsTrigger value="mentions">Mentions</TabsTrigger>
             <TabsTrigger value="status">System</TabsTrigger>
+            <TabsTrigger value="token-override" className="text-yellow-400 data-[state=active]:text-yellow-400">
+              <TrendingUp className="w-3 h-3 mr-1" /> Token Override
+            </TabsTrigger>
           </TabsList>
 
           {/* TWEET QUEUE TAB */}
@@ -1520,6 +1566,81 @@ const HustleAdmin = () => {
                   <Button onClick={checkApiStatus} variant="outline" size="sm">Re-check API</Button>
                   <Button onClick={handleForceSync} disabled={syncing} variant="outline" size="sm">{syncing ? "Syncing..." : "Force Sync"}</Button>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* TOKEN OVERRIDE TAB */}
+          <TabsContent value="token-override" className="space-y-4">
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-sm font-display tracking-widest text-yellow-400">⚡ TOKEN PRICE OVERRIDE</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">
+                  During the Virtuals Prototype phase, DexScreener may show stale or inaccurate data.
+                  Enable the manual override to pin accurate values directly from Virtuals.io to the live dashboard.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {/* Toggle */}
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={overrideEnabled}
+                    onCheckedChange={setOverrideEnabled}
+                    className="data-[state=checked]:bg-yellow-400"
+                  />
+                  <span className="text-sm font-mono">
+                    {overrideEnabled ? (
+                      <span className="text-yellow-400 font-bold">MANUAL OVERRIDE ACTIVE</span>
+                    ) : (
+                      <span className="text-muted-foreground">Use live DexScreener data</span>
+                    )}
+                  </span>
+                </div>
+
+                {/* Price input */}
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground tracking-widest uppercase">Token Price (USD)</label>
+                  <Input
+                    value={overridePrice}
+                    onChange={(e) => setOverridePrice(e.target.value)}
+                    placeholder="0.00000529"
+                    className="font-mono text-sm"
+                    disabled={!overrideEnabled}
+                  />
+                  <p className="text-[9px] text-muted-foreground">
+                    Market Cap = price × 1,000,000,000. Current: ${overrideEnabled && overridePrice ? (parseFloat(overridePrice) * 1_000_000_000).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "--"}
+                  </p>
+                </div>
+
+                {/* 24h change input */}
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground tracking-widest uppercase">24h Price Change (%)</label>
+                  <Input
+                    value={overrideChangeH24}
+                    onChange={(e) => setOverrideChangeH24(e.target.value)}
+                    placeholder="20.13"
+                    className="font-mono text-sm"
+                    disabled={!overrideEnabled}
+                  />
+                  <p className="text-[9px] text-muted-foreground">Positive = green (e.g. 20.13), negative = red (e.g. -5.4)</p>
+                </div>
+
+                {/* Save button */}
+                <Button
+                  onClick={saveTokenOverride}
+                  disabled={overrideSaving}
+                  className="bg-yellow-400/10 border border-yellow-400/40 text-yellow-400 hover:bg-yellow-400/20 font-mono text-xs tracking-widest"
+                  variant="outline"
+                >
+                  {overrideSaving ? <><Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> SAVING...</> : "💾 SAVE OVERRIDE"}
+                </Button>
+
+                {/* Status */}
+                {overrideLoaded && (
+                  <div className="text-[9px] text-muted-foreground border-t border-border pt-3">
+                    <span className="font-bold text-yellow-400/70">NOTE:</span> The override is applied on the next 30s polling cycle. Use the refresh icon on the token widget to see changes immediately.
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -7,6 +7,9 @@ const TOTAL_SUPPLY = 1_000_000_000; // $HCORE fixed total supply
 const MIGRATION_MARKET_CAP = 50_000; // Virtuals Protocol migration threshold in USD
 const FETCH_INTERVAL_MS = 30_000; // 30 seconds
 
+// If DEX market cap is below this threshold, prefer the manual override
+const DEX_FLOOR_MCAP = 5_100;
+
 export interface TokenData {
   marketCap: number | null;
   priceUsd: number | null;
@@ -14,7 +17,8 @@ export interface TokenData {
   priceChangeH24: number | null;
   isLoading: boolean;
   isError: boolean;
-  donationsFallback: number | null; // total SOL donated, shown when DEX fails
+  donationsFallback: number | null;
+  isManualOverride: boolean;
 }
 
 // Show full dollars+cents for values under $50K so the display moves visibly
@@ -27,6 +31,37 @@ export function formatMarketCap(value: number): string {
   }
   // Below $50K: show full amount with commas and 2 decimal places
   return `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
+}
+
+interface ManualOverride {
+  enabled: boolean;
+  priceUsd: number;
+  priceChangeH24: number;
+}
+
+async function fetchManualOverride(): Promise<ManualOverride | null> {
+  try {
+    const { data, error } = await supabase
+      .from("system_settings")
+      .select("key, value")
+      .in("key", ["token_override_enabled", "token_override_price", "token_override_change_h24"]);
+
+    if (error || !data || data.length === 0) return null;
+
+    const map: Record<string, string> = {};
+    data.forEach((row) => { map[row.key] = row.value; });
+
+    if (map["token_override_enabled"] !== "true") return null;
+
+    const priceUsd = parseFloat(map["token_override_price"] ?? "0");
+    const priceChangeH24 = parseFloat(map["token_override_change_h24"] ?? "0");
+
+    if (!priceUsd || priceUsd <= 0) return null;
+
+    return { enabled: true, priceUsd, priceChangeH24 };
+  } catch {
+    return null;
+  }
 }
 
 async function fetchDonationsFallback(): Promise<number | null> {
@@ -56,7 +91,7 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       return null;
     }
     const json = await res.json();
-    console.log("DEX_RESPONSE:", json); // raw API output for debugging
+    console.log("DEX_RESPONSE:", json);
 
     const pairs: any[] = json?.pairs ?? [];
     if (!pairs.length) {
@@ -76,7 +111,7 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       return null;
     }
 
-    // Log every pair so we can diagnose which one has the real price
+    // Log every pair for diagnostics
     filtered.forEach((p, i) => {
       console.log(
         `[DEX] pair[${i}]: dex=${p.dexId} | priceUsd=${p.priceUsd} | liquidity=$${p.liquidity?.usd} | h24=${p.priceChange?.h24}%`
@@ -88,17 +123,12 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       parseFloat(String(b.liquidity?.usd ?? "0")) > parseFloat(String(a.liquidity?.usd ?? "0")) ? b : a
     );
 
-    // Read raw string — NO Number() conversion until after multiplication
     const rawPrice = String(best.priceUsd ?? "0");
     const mcap = parseFloat(rawPrice) * TOTAL_SUPPLY;
 
     console.log(`CHOSEN_PAIR_LIQUIDITY: ${best.liquidity?.usd}, PRICE: ${rawPrice}, IS_REAL: true`);
     console.log("CRITICAL_DEBUG_PRICE:", rawPrice);
     console.log("CRITICAL_DEBUG_MCAP:", mcap);
-
-    if (Math.round(mcap) === 5000) {
-      console.warn("WARNING: DATA MIGHT BE ROUNDED — mcap is suspiciously exactly 5000");
-    }
 
     const rawH24 = best.priceChange?.h24;
     const rawH6  = best.priceChange?.h6;
@@ -120,6 +150,7 @@ export function useTokenData(onMilestone?: (marketCap: number) => void) {
     isLoading: true,
     isError: false,
     donationsFallback: null,
+    isManualOverride: false,
   });
 
   const prevThousandRef = useRef<number | null>(null);
@@ -128,10 +159,18 @@ export function useTokenData(onMilestone?: (marketCap: number) => void) {
 
   const load = useCallback(async () => {
     setData((prev) => ({ ...prev, isLoading: true }));
-    const result = await fetchDexScreener();
 
-    if (!result) {
-      // DEX failed — load donations as fallback trust signal
+    // Always check for a manual override first (set via Admin panel)
+    const override = await fetchManualOverride();
+
+    const dexResult = await fetchDexScreener();
+
+    // Decide which source to use:
+    // - Use override if it's enabled AND (DEX failed or DEX mcap is below the floor)
+    const useDexData = dexResult && (!override || dexResult.fdv >= DEX_FLOOR_MCAP);
+
+    if (!useDexData && !override) {
+      // Both DEX and override are unavailable
       const donated = await fetchDonationsFallback();
       setData((prev) => ({
         ...prev,
@@ -142,11 +181,30 @@ export function useTokenData(onMilestone?: (marketCap: number) => void) {
         isLoading: false,
         isError: true,
         donationsFallback: donated,
+        isManualOverride: false,
       }));
       return;
     }
 
-    const { fdv, priceUsd, priceChangeH24 } = result;
+    let fdv: number;
+    let priceUsd: number;
+    let priceChangeH24: number;
+    let isManualOverride = false;
+
+    if (useDexData && dexResult) {
+      fdv = dexResult.fdv;
+      priceUsd = dexResult.priceUsd;
+      priceChangeH24 = dexResult.priceChangeH24;
+      console.log("[TOKEN] Using DEX data — mcap:", fdv);
+    } else {
+      // Use manual override
+      priceUsd = override!.priceUsd;
+      fdv = priceUsd * TOTAL_SUPPLY;
+      priceChangeH24 = override!.priceChangeH24;
+      isManualOverride = true;
+      console.log("[TOKEN] Using MANUAL OVERRIDE — price:", priceUsd, "mcap:", fdv);
+    }
+
     const bondingCurvePercent = Math.min(100, (fdv / MIGRATION_MARKET_CAP) * 100);
 
     // Milestone detection: crossed a new thousand
@@ -166,6 +224,7 @@ export function useTokenData(onMilestone?: (marketCap: number) => void) {
       isLoading: false,
       isError: false,
       donationsFallback: null,
+      isManualOverride,
     });
   }, []);
 

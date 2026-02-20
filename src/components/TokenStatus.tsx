@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { RefreshCw } from "lucide-react";
 import { VIRTUALS_URL } from "./CountdownBanner";
 import { useTokenData } from "@/hooks/useTokenData";
@@ -11,7 +11,7 @@ interface TokenStatusProps {
 }
 
 const Shimmer = () => (
-  <span className="inline-block w-16 h-3 rounded bg-muted/60 animate-pulse align-middle" />
+  <span className="inline-block w-20 h-5 rounded bg-muted/60 animate-pulse align-middle" />
 );
 
 const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
@@ -23,6 +23,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
     isLoading,
     isError,
     donationsFallback,
+    isManualOverride,
     formatMarketCap,
     refetch,
   } = useTokenData(onMilestone);
@@ -35,7 +36,6 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
     if (marketCap !== null && marketCap !== prevMcRef.current) {
       prevMcRef.current = marketCap;
       onMarketCapChange?.(marketCap);
-      // trigger cyan border flash
       setPulse(true);
       const t = setTimeout(() => setPulse(false), 800);
       return () => clearTimeout(t);
@@ -62,7 +62,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
   );
 
   const marketCapClass = cn(
-    "font-bold transition-colors duration-700 tabular-nums",
+    "font-bold transition-colors duration-700 tabular-nums text-3xl",
     isUp && "text-neon-green drop-shadow-[0_0_8px_hsl(var(--neon-green))]",
     isDown && "text-destructive drop-shadow-[0_0_8px_hsl(var(--destructive))]",
     isStable && "text-yellow-400",
@@ -84,7 +84,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
     >
       {/* Label + LIVE / OFFLINE indicator */}
       <div className="flex items-center gap-1.5">
-        <span className="text-muted-foreground tracking-widest">$HCORE TOKEN</span>
+        <span className="font-display text-[10px] tracking-widest text-muted-foreground uppercase">$HCORE TOKEN</span>
         {!isLoading && !isError ? (
           <span className="inline-flex items-center gap-1">
             <span className="relative flex h-2 w-2">
@@ -102,16 +102,19 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
             <span className="text-[9px] text-destructive font-bold tracking-widest">OFFLINE</span>
           </span>
         ) : null}
+        {isManualOverride && !isError && (
+          <span className="text-[8px] text-yellow-400 font-bold tracking-wider ml-auto">MANUAL</span>
+        )}
       </div>
 
-      {/* Market Cap + raw price */}
+      {/* Market Cap — largest element */}
       <div className="flex flex-col gap-0.5">
-        <div className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">Market Cap:</span>
+        <span className="text-[10px] text-muted-foreground tracking-wider uppercase">Market Cap</span>
+        <div className="flex items-end gap-2">
           {isLoading ? (
             <Shimmer />
           ) : isError || marketCap === null ? (
-            <span className="text-muted-foreground/60 font-bold animate-pulse">SYNCING...</span>
+            <span className="text-muted-foreground/60 font-bold animate-pulse text-2xl">SYNCING...</span>
           ) : (
             <motion.span
               className={marketCapClass}
@@ -124,7 +127,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
             </motion.span>
           )}
           {priceChangeH24 !== null && !isLoading && !isError && (
-            <span className={changeLabel === "STABLE" ? changeClass : cn(changeClass, "opacity-90")}>
+            <span className={cn(changeClass, "mb-1")}>
               ({changeLabel})
             </span>
           )}
@@ -139,7 +142,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
 
       {/* Bonding Curve */}
       <div className="flex items-center gap-1.5">
-        <span className="text-muted-foreground">Bonding Curve:</span>
+        <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Bonding Curve:</span>
         {isLoading ? (
           <Shimmer />
         ) : isError || bondingCurvePercent === null ? (
@@ -157,17 +160,15 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
         )}
       </div>
 
-      {/* Prototype mode label (low liquidity phase) */}
-      {!isError && !isLoading && (
-        <span className="text-[8px] text-yellow-400/60 tracking-wider border border-yellow-400/20 rounded px-1 py-0.5">
-          VIRTUALS PROTOTYPE MODE
-        </span>
-      )}
+      {/* Prototype mode badge */}
+      <span className="text-[8px] text-yellow-400/70 tracking-wider border border-yellow-400/20 rounded px-1.5 py-0.5 self-start">
+        VIRTUALS PROTOTYPE MODE
+      </span>
 
       {/* Donations fallback when DEX fails */}
       {isError && donationsFallback !== null && donationsFallback > 0 && (
         <div className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">Community Raised:</span>
+          <span className="text-muted-foreground text-[10px]">Community Raised:</span>
           <span className="text-neon-cyan font-bold">{donationsFallback.toFixed(3)} SOL</span>
         </div>
       )}
@@ -183,7 +184,7 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
         </motion.span>
       )}
 
-      {/* Manual refresh button */}
+      {/* Footer */}
       <div className="mt-auto pt-2 flex justify-between items-center">
         <a
           href={VIRTUALS_URL}
