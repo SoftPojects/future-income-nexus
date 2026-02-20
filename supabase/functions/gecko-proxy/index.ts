@@ -8,8 +8,12 @@ const CORS_HEADERS = {
 
 const TOKEN_ADDRESS = "0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
 const GECKO_URL = `https://api.geckoterminal.com/api/v2/networks/base/tokens/${TOKEN_ADDRESS}`;
+const CACHE_TTL_MS = 60_000; // Cache for 60 seconds to avoid rate limits
 
-async function fetchWithRetry(url: string, maxRetries = 4): Promise<Response> {
+// In-memory cache shared across requests within the same function instance
+let cachedData: { json: unknown; expiresAt: number } | null = null;
+
+async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const res = await fetch(`${url}?t=${Date.now()}`, {
       headers: {
@@ -47,6 +51,15 @@ serve(async (req) => {
   }
 
   try {
+    // Serve from cache if still valid
+    if (cachedData && Date.now() < cachedData.expiresAt) {
+      console.log("[gecko-proxy] Serving from cache");
+      return new Response(JSON.stringify(cachedData.json), {
+        status: 200,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "HIT" },
+      });
+    }
+
     const res = await fetchWithRetry(GECKO_URL);
 
     if (!res.ok) {
@@ -58,9 +71,13 @@ serve(async (req) => {
 
     const data = await res.json();
 
+    // Store in cache
+    cachedData = { json: data, expiresAt: Date.now() + CACHE_TTL_MS };
+    console.log("[gecko-proxy] Cached fresh data, expires in 60s");
+
     return new Response(JSON.stringify(data), {
       status: 200,
-      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "MISS" },
     });
   } catch (err) {
     console.error("[gecko-proxy] Error:", err);
