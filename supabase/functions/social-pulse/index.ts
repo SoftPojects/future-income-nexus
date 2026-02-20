@@ -1,7 +1,8 @@
 /**
  * social-pulse — Autonomous social engine (30-45 min cron)
- * Weighted random: 60% idle, 30% like, 10% follow
+ * Weighted random: 40% follow, 40% like, 20% idle
  * Enforces daily quotas: 10-15 follows, 20-30 likes
+ * Manual targets are prioritized over discovery targets
  * Uses Gemini-Flash to filter post quality before liking
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -19,12 +20,19 @@ const FOLLOW_MAX = 15;
 const LIKE_MIN = 20;
 const LIKE_MAX = 30;
 
-// ─── Weighted action picker ───
-function pickAction(): "idle" | "like" | "follow" {
+// ─── Weighted action picker (goal-driven: fill quota first) ───
+function pickAction(followsRemaining: number, likesRemaining: number): "idle" | "like" | "follow" {
+  const canFollow = followsRemaining > 0;
+  const canLike = likesRemaining > 0;
+
+  if (!canFollow && !canLike) return "idle";
+
   const r = Math.random();
-  if (r < 0.60) return "idle";
-  if (r < 0.90) return "like";  // 30% chance
-  return "follow";               // 10% chance
+
+  // 40% follow, 40% like, 20% idle — but only pick an action if quota remains
+  if (r < 0.40) return canFollow ? "follow" : (canLike ? "like" : "idle");
+  if (r < 0.80) return canLike ? "like" : (canFollow ? "follow" : "idle");
+  return "idle"; // 20% idle
 }
 
 // ─── OAuth helpers (shared across auto-follow/execute-social-action) ───
@@ -79,12 +87,14 @@ async function lookupUserByHandle(handle: string): Promise<string | null> {
   return data.data?.id || null;
 }
 
-async function followUser(sourceUserId: string, targetUserId: string): Promise<boolean> {
+async function followUser(sourceUserId: string, targetUserId: string): Promise<{ success: boolean; errorDetail?: string }> {
   const resp = await makeOAuthRequest(
     `https://api.x.com/2/users/${sourceUserId}/following`, "POST",
     JSON.stringify({ target_user_id: targetUserId })
   );
-  return resp.ok;
+  if (resp.ok) return { success: true };
+  const errText = await resp.text().catch(() => "unknown");
+  return { success: false, errorDetail: `HTTP ${resp.status}: ${errText.slice(0, 300)}` };
 }
 
 async function getLatestTweetFromUser(userId: string): Promise<{ id: string; text: string } | null> {
@@ -255,28 +265,27 @@ serve(async (req) => {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-    // ─── STEP 1: Weighted random action decision ───
-    const action = pickAction();
-    console.log(`[PULSE] Action rolled: ${action.toUpperCase()}`);
+    // Check if this is a force-follow request
+    let body: { forceFollow?: boolean } = {};
+    try { body = await req.json(); } catch { /* no body */ }
+    const isForceFollow = body?.forceFollow === true;
+
+    // ─── STEP 1: Check daily quota first (quota-aware action picking) ───
+    const quota = await getTodayQuota(sb);
+    const followsRemaining = quota.follows_limit - quota.follows_count;
+    const likesRemaining = quota.likes_limit - quota.likes_count;
+
+    // For force-follow, skip the random roll and go straight to follow
+    const action = isForceFollow ? "follow" : pickAction(followsRemaining, likesRemaining);
+    console.log(`[PULSE] Action: ${action.toUpperCase()} | Follows left: ${followsRemaining} | Likes left: ${likesRemaining}${isForceFollow ? " | FORCE MODE" : ""}`);
 
     if (action === "idle") {
       console.log("[PULSE] Idling this cycle.");
-      return new Response(JSON.stringify({ action: "idle", reason: "60% idle probability" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // ─── STEP 2: Check daily quota ───
-    const quota = await getTodayQuota(sb);
-
-    if (action === "follow" && quota.follows_count >= quota.follows_limit) {
-      console.log(`[PULSE] Daily follow quota reached (${quota.follows_count}/${quota.follows_limit}). Falling back to like.`);
-      // Fall through to like instead
-    }
-
-    if (action === "like" && quota.likes_count >= quota.likes_limit) {
-      console.log(`[PULSE] Daily like quota reached (${quota.likes_count}/${quota.likes_limit}). Idling.`);
-      return new Response(JSON.stringify({ action: "idle", reason: "daily like quota reached" }), {
+      // Log the idle cycle so admins can see the function fired
+      await sb.from("agent_logs").insert({
+        message: `[SYSTEM]: Neural rest cycle. No actions taken. (follows: ${quota.follows_count}/${quota.follows_limit}, likes: ${quota.likes_count}/${quota.likes_limit})`,
+      }).catch(() => {});
+      return new Response(JSON.stringify({ action: "idle", reason: "20% idle probability or quotas full" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -287,87 +296,128 @@ serve(async (req) => {
     const myUserId = await getAuthenticatedUserId();
     if (!myUserId) throw new Error("Failed to get X user ID");
 
-    // ─── STEP 3: FOLLOW action ───
-    if (action === "follow" && quota.follows_count < quota.follows_limit) {
-      // Get next unfollow target
-      const { data: targets } = await sb
-        .from("target_agents")
-        .select("*")
-        .eq("auto_follow", true)
-        .eq("is_active", true)
-        .is("followed_at", null)
-        .order("priority", { ascending: true })
-        .order("created_at", { ascending: true })
-        .limit(1);
+    // ─── STEP 2: FOLLOW action ───
+    if (action === "follow") {
+      if (!isForceFollow && followsRemaining <= 0) {
+        // Quota hit, fall through to like
+        console.log(`[PULSE] Follow quota full (${quota.follows_count}/${quota.follows_limit}), falling back to like.`);
+      } else {
+        // Priority 1: Manual targets (any source != 'discovery')
+        const { data: manualTargets } = await sb
+          .from("target_agents")
+          .select("*")
+          .eq("auto_follow", true)
+          .eq("is_active", true)
+          .is("followed_at", null)
+          .neq("source", "discovery")
+          .order("priority", { ascending: true })
+          .order("created_at", { ascending: true })
+          .limit(1);
 
-      let target = targets?.[0];
+        let target = manualTargets?.[0];
 
-      // If no targets, discover new ones
-      if (!target && LOVABLE_API_KEY) {
-        console.log("[PULSE] No targets, triggering discovery...");
-        const discovered = await discoverNewTargets(sb, LOVABLE_API_KEY);
-        if (discovered.length > 0) {
-          const { data: existing } = await sb.from("target_agents").select("x_handle");
-          const existingSet = new Set((existing || []).map((t: any) => t.x_handle.toLowerCase()));
-          const newHandles = discovered.filter((h) => !existingSet.has(h.toLowerCase()));
-          for (const handle of newHandles) {
-            await sb.from("target_agents").insert({ x_handle: handle, auto_follow: true, source: "discovery", priority: 10 });
-          }
-          if (newHandles.length > 0) {
-            await sb.from("agent_logs").insert({
-              message: `[DISCOVERY]: Found ${newHandles.length} new targets via Pulse: ${newHandles.map(h => `@${h}`).join(", ")}`,
-            });
-            // Re-fetch
-            const { data: refreshed } = await sb.from("target_agents").select("*").eq("auto_follow", true).eq("is_active", true).is("followed_at", null).order("priority", { ascending: true }).limit(1);
-            target = refreshed?.[0];
+        // Priority 2: Discovery targets
+        if (!target) {
+          const { data: discoveryTargets } = await sb
+            .from("target_agents")
+            .select("*")
+            .eq("auto_follow", true)
+            .eq("is_active", true)
+            .is("followed_at", null)
+            .eq("source", "discovery")
+            .order("priority", { ascending: true })
+            .order("created_at", { ascending: true })
+            .limit(1);
+          target = discoveryTargets?.[0];
+        }
+
+        // Priority 3: Discover new targets if list empty
+        if (!target && LOVABLE_API_KEY) {
+          console.log("[PULSE] No targets, triggering discovery...");
+          const discovered = await discoverNewTargets(sb, LOVABLE_API_KEY);
+          if (discovered.length > 0) {
+            const { data: existing } = await sb.from("target_agents").select("x_handle");
+            const existingSet = new Set((existing || []).map((t: any) => t.x_handle.toLowerCase()));
+            const newHandles = discovered.filter((h) => !existingSet.has(h.toLowerCase()));
+            for (const handle of newHandles) {
+              await sb.from("target_agents").insert({ x_handle: handle, auto_follow: true, source: "discovery", priority: 10 });
+            }
+            if (newHandles.length > 0) {
+              await sb.from("agent_logs").insert({
+                message: `[DISCOVERY]: Found ${newHandles.length} new targets via Pulse: ${newHandles.map(h => `@${h}`).join(", ")}`,
+              });
+              const { data: refreshed } = await sb.from("target_agents").select("*").eq("auto_follow", true).eq("is_active", true).is("followed_at", null).order("priority", { ascending: true }).limit(1);
+              target = refreshed?.[0];
+            }
           }
         }
-      }
 
-      if (!target) {
-        console.log("[PULSE] No follow target available.");
-        return new Response(JSON.stringify({ action: "idle", reason: "no targets available" }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+        if (!target) {
+          console.log("[PULSE] No follow target available.");
+          return new Response(JSON.stringify({ action: "idle", reason: "no targets available" }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
-      const targetUserId = await lookupUserByHandle(target.x_handle);
-      if (!targetUserId) {
-        console.warn(`[PULSE] Could not find X ID for @${target.x_handle}`);
-        return new Response(JSON.stringify({ action: "skipped", reason: `handle not found: @${target.x_handle}` }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
+        const targetUserId = await lookupUserByHandle(target.x_handle);
+        if (!targetUserId) {
+          const errMsg = `[PULSE ERROR]: @${target.x_handle} — X lookup failed (handle may be invalid/suspended)`;
+          console.warn(errMsg);
+          await sb.from("agent_logs").insert({ message: errMsg }).catch(() => {});
+          return new Response(JSON.stringify({ action: "skipped", reason: `handle not found: @${target.x_handle}` }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
 
-      const success = await followUser(myUserId, targetUserId);
-      if (success) {
-        const reason = `targeted ${target.source === "discovery" ? "discovered" : "manual"} account for network growth`;
-        await Promise.all([
-          sb.from("target_agents").update({ followed_at: new Date().toISOString() }).eq("id", target.id),
-          sb.from("social_logs").insert({
+        const followResult = await followUser(myUserId, targetUserId);
+        if (followResult.success) {
+          const reason = `targeted ${target.source === "discovery" ? "discovered" : "manual"} account for network growth`;
+          await Promise.all([
+            sb.from("target_agents").update({ followed_at: new Date().toISOString() }).eq("id", target.id),
+            sb.from("social_logs").insert({
+              target_handle: target.x_handle,
+              action_type: "follow",
+              source: isForceFollow ? "force_follow" : "auto_pulse",
+              reason,
+            }),
+            sb.from("agent_logs").insert({
+              message: `[PULSE FOLLOW]: @${target.x_handle} — ${reason} (${isForceFollow ? "FORCE" : "AUTO"})`,
+            }),
+            incrementQuota(sb, quota.id, "follows_count", quota.follows_count),
+          ]);
+          console.log(`[PULSE] Followed @${target.x_handle}. Quota: ${quota.follows_count + 1}/${quota.follows_limit}`);
+          return new Response(JSON.stringify({ action: "follow", target: target.x_handle, reason, quota: { follows: quota.follows_count + 1, followsLimit: quota.follows_limit } }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        } else {
+          // Log EXACT error for full transparency
+          const errMsg = `[PULSE ERROR]: Follow @${target.x_handle} FAILED — ${followResult.errorDetail}`;
+          console.error(errMsg);
+          await sb.from("agent_logs").insert({ message: errMsg }).catch(() => {});
+          await sb.from("social_logs").insert({
             target_handle: target.x_handle,
-            action_type: "follow",
-            source: "auto_pulse",
-            reason,
-          }),
-          sb.from("agent_logs").insert({
-            message: `[PULSE FOLLOW]: @${target.x_handle} — ${reason}`,
-          }),
-          incrementQuota(sb, quota.id, "follows_count", quota.follows_count),
-        ]);
-        console.log(`[PULSE] Followed @${target.x_handle}. Quota: ${quota.follows_count + 1}/${quota.follows_limit}`);
-        return new Response(JSON.stringify({ action: "follow", target: target.x_handle, reason, quota: { follows: quota.follows_count + 1, followsLimit: quota.follows_limit } }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      } else {
-        return new Response(JSON.stringify({ action: "error", reason: `follow failed for @${target.x_handle}` }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+            action_type: "follow_error",
+            source: isForceFollow ? "force_follow" : "auto_pulse",
+            reason: `API error: ${followResult.errorDetail?.slice(0, 200)}`,
+          }).catch(() => {});
+          return new Response(JSON.stringify({ action: "error", reason: `follow failed: ${followResult.errorDetail}` }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
       }
     }
 
-    // ─── STEP 4: LIKE action ───
-    // Pick a random target to like from
+    // ─── STEP 3: LIKE action ───
+    if (likesRemaining <= 0) {
+      console.log(`[PULSE] Like quota full (${quota.likes_count}/${quota.likes_limit}). Idling.`);
+      await sb.from("agent_logs").insert({
+        message: `[SYSTEM]: Neural rest cycle. No actions taken. (follows: ${quota.follows_count}/${quota.follows_limit}, likes: ${quota.likes_count}/${quota.likes_limit})`,
+      }).catch(() => {});
+      return new Response(JSON.stringify({ action: "idle", reason: "daily like quota reached" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { data: likeTargets } = await sb
       .from("target_agents")
       .select("*")
@@ -382,7 +432,6 @@ serve(async (req) => {
       });
     }
 
-    // Pick randomly from top targets
     const likeTarget = likeTargets[Math.floor(Math.random() * likeTargets.length)];
     const likeUserId = await lookupUserByHandle(likeTarget.x_handle);
     if (!likeUserId) {
@@ -446,3 +495,4 @@ serve(async (req) => {
     });
   }
 });
+
