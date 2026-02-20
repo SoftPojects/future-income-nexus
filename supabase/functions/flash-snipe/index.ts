@@ -1,10 +1,10 @@
 /**
  * flash-snipe / VIP SNIPER
- * Cron: every 15 minutes
- * - Rotates through VIP targets (one per run, checks the one least-recently checked)
+ * - Rotates through VIP targets (one per run, least-recently-checked first)
  * - Fetches Tavily context on their latest tweet topic
  * - Uses Claude 3.5 Sonnet to write a "Viral Intercept" reply
- * - Enforces 1 reply per VIP per 24h
+ * - Enforces: 1 reply per VIP per 24h AND 1 reply globally per hour
+ * - Only marks LIVE after confirmed X API tweet_id returned
  * - Checks like counts on previous replies → logs to terminal if ≥10 likes
  */
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -19,7 +19,6 @@ const corsHeaders = {
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_ZINGER = "anthropic/claude-3.5-sonnet";
 
-// ─── VIRAL INTERCEPT PERSONA ─────────────────────────────────────────────────
 const CHAIN_RULE =
   "SOL is ONLY for fueling on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on BASE network. NEVER tell users to buy $HCORE with SOL.";
 
@@ -53,16 +52,12 @@ async function generateOAuthSignature(
   consumerSecret: string,
   tokenSecret: string
 ): Promise<string> {
-  const sorted = Object.keys(params)
-    .sort()
-    .map((k) => `${percentEncode(k)}=${percentEncode(params[k])}`)
-    .join("&");
+  const sorted = Object.keys(params).sort()
+    .map((k) => `${percentEncode(k)}=${percentEncode(params[k])}`).join("&");
   const base = `${method}&${percentEncode(url)}&${percentEncode(sorted)}`;
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(
-      `${percentEncode(consumerSecret)}&${percentEncode(tokenSecret)}`
-    ),
+    new TextEncoder().encode(`${percentEncode(consumerSecret)}&${percentEncode(tokenSecret)}`),
     { name: "HMAC", hash: "SHA-1" },
     false,
     ["sign"]
@@ -92,19 +87,11 @@ async function getOAuthHeader(
     ...extraParams,
   };
   oauthParams.oauth_signature = await generateOAuthSignature(
-    method,
-    url,
-    oauthParams,
-    consumerSecret,
-    accessTokenSecret
+    method, url, oauthParams, consumerSecret, accessTokenSecret
   );
-  return (
-    "OAuth " +
-    Object.keys(oauthParams)
-      .sort()
-      .map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`)
-      .join(", ")
-  );
+  return "OAuth " + Object.keys(oauthParams).sort()
+    .map((k) => `${percentEncode(k)}="${percentEncode(oauthParams[k])}"`)
+    .join(", ");
 }
 
 // ─── X API HELPERS ────────────────────────────────────────────────────────────
@@ -112,17 +99,12 @@ async function getUserId(handle: string): Promise<string | null> {
   const url = `https://api.x.com/2/users/by/username/${handle}`;
   const auth = await getOAuthHeader("GET", url);
   const resp = await fetch(url, { headers: { Authorization: auth } });
-  if (!resp.ok) {
-    console.warn(`[SNIPER] lookup failed for @${handle}: ${resp.status}`);
-    return null;
-  }
+  if (!resp.ok) { console.warn(`[SNIPER] lookup failed for @${handle}: ${resp.status}`); return null; }
   const d = await resp.json();
   return d.data?.id || null;
 }
 
-async function getLatestTweet(
-  userId: string
-): Promise<{ id: string; text: string } | null> {
+async function getLatestTweet(userId: string): Promise<{ id: string; text: string } | null> {
   const baseUrl = `https://api.x.com/2/users/${userId}/tweets`;
   const qStr = "max_results=5&exclude=retweets,replies&tweet.fields=created_at,text";
   const qParams: Record<string, string> = {
@@ -132,10 +114,7 @@ async function getLatestTweet(
   };
   const auth = await getOAuthHeader("GET", baseUrl, qParams);
   const resp = await fetch(`${baseUrl}?${qStr}`, { headers: { Authorization: auth } });
-  if (!resp.ok) {
-    console.warn(`[SNIPER] tweet fetch failed: ${resp.status}`);
-    return null;
-  }
+  if (!resp.ok) { console.warn(`[SNIPER] tweet fetch failed: ${resp.status}`); return null; }
   const d = await resp.json();
   const tweet = d.data?.[0];
   if (!tweet) return null;
@@ -146,15 +125,20 @@ async function getTweetLikeCount(tweetId: string): Promise<number> {
   const baseUrl = `https://api.x.com/2/tweets/${tweetId}`;
   const qParams: Record<string, string> = { "tweet.fields": "public_metrics" };
   const auth = await getOAuthHeader("GET", baseUrl, qParams);
-  const resp = await fetch(`${baseUrl}?tweet.fields=public_metrics`, {
-    headers: { Authorization: auth },
-  });
+  const resp = await fetch(`${baseUrl}?tweet.fields=public_metrics`, { headers: { Authorization: auth } });
   if (!resp.ok) return 0;
   const d = await resp.json();
   return d.data?.public_metrics?.like_count || 0;
 }
 
-async function postReply(tweetId: string, text: string): Promise<boolean> {
+/**
+ * Posts a reply and returns the new tweet's ID on success, or an error string on failure.
+ * NEVER returns "true/false" — we need the actual tweet_id to build the URL.
+ */
+async function postReply(
+  tweetId: string,
+  text: string
+): Promise<{ success: boolean; tweetId?: string; error?: string }> {
   const url = "https://api.x.com/2/tweets";
   const auth = await getOAuthHeader("POST", url);
   const resp = await fetch(url, {
@@ -163,10 +147,13 @@ async function postReply(tweetId: string, text: string): Promise<boolean> {
     body: JSON.stringify({ text, reply: { in_reply_to_tweet_id: tweetId } }),
   });
   if (!resp.ok) {
-    console.error(`[SNIPER] reply failed: ${resp.status}`, await resp.text());
-    return false;
+    const errBody = await resp.json().catch(() => ({}));
+    const errMsg = `${resp.status}: ${errBody?.detail || errBody?.title || JSON.stringify(errBody)}`;
+    console.error(`[SNIPER] reply failed: ${errMsg}`);
+    return { success: false, error: errMsg };
   }
-  return true;
+  const data = await resp.json();
+  return { success: true, tweetId: data.data?.id };
 }
 
 // ─── TAVILY CONTEXT ───────────────────────────────────────────────────────────
@@ -177,29 +164,19 @@ async function getTavilyContext(topic: string): Promise<string> {
     const resp = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: tavilyKey,
-        query: topic,
-        search_depth: "basic",
-        max_results: 3,
-        include_answer: true,
-      }),
+      body: JSON.stringify({ api_key: tavilyKey, query: topic, search_depth: "basic", max_results: 3, include_answer: true }),
     });
     if (!resp.ok) return topic;
     const d = await resp.json();
     const answer = d.answer || "";
-    const snippets = (d.results || [])
-      .slice(0, 3)
-      .map((r: any) => r.content?.slice(0, 200))
-      .filter(Boolean)
-      .join(" | ");
+    const snippets = (d.results || []).slice(0, 3).map((r: any) => r.content?.slice(0, 200)).filter(Boolean).join(" | ");
     return `${answer} ${snippets}`.trim().slice(0, 600) || topic;
   } catch {
     return topic;
   }
 }
 
-// ─── OPENROUTER AI ────────────────────────────────────────────────────────────
+// ─── AI ───────────────────────────────────────────────────────────────────────
 async function craftViralIntercept(
   handle: string,
   tweetText: string,
@@ -208,10 +185,7 @@ async function craftViralIntercept(
 ): Promise<string | null> {
   const resp = await fetch(OPENROUTER_URL, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: MODEL_ZINGER,
       temperature: 0.92,
@@ -220,19 +194,12 @@ async function craftViralIntercept(
         { role: "system", content: VIRAL_INTERCEPT_SYSTEM },
         {
           role: "user",
-          content: `@${handle} just posted: "${tweetText}"
-
-Background intel (Tavily): ${tavilyContext}
-
-Write the viral intercept reply. Just the text. Start with @${handle}.`,
+          content: `@${handle} just posted: "${tweetText}"\n\nBackground intel (Tavily): ${tavilyContext}\n\nWrite the viral intercept reply. Just the text. Start with @${handle}.`,
         },
       ],
     }),
   });
-  if (!resp.ok) {
-    console.error("[SNIPER] Claude error:", resp.status, await resp.text());
-    return null;
-  }
+  if (!resp.ok) { console.error("[SNIPER] Claude error:", resp.status, await resp.text()); return null; }
   const d = await resp.json();
   return d.choices?.[0]?.message?.content?.trim() || null;
 }
@@ -246,17 +213,12 @@ serve(async (req) => {
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const hasXKeys = !!(
-      Deno.env.get("X_API_KEY") &&
-      Deno.env.get("X_API_SECRET") &&
-      Deno.env.get("X_ACCESS_TOKEN") &&
-      Deno.env.get("X_ACCESS_SECRET")
+      Deno.env.get("X_API_KEY") && Deno.env.get("X_API_SECRET") &&
+      Deno.env.get("X_ACCESS_TOKEN") && Deno.env.get("X_ACCESS_SECRET")
     );
     if (!hasXKeys) throw new Error("X API credentials not configured");
 
-    const sb = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     const body = await req.json().catch(() => ({}));
     const dryRun = body.dryRun === true;
@@ -264,11 +226,7 @@ serve(async (req) => {
 
     // ── Check sniper_mode ────────────────────────────────────────────────────
     if (!dryRun && !forcedHandle) {
-      const { data: setting } = await sb
-        .from("system_settings" as any)
-        .select("value")
-        .eq("key", "sniper_mode")
-        .maybeSingle();
+      const { data: setting } = await sb.from("system_settings" as any).select("value").eq("key", "sniper_mode").maybeSingle();
       if (setting?.value === "false") {
         return new Response(
           JSON.stringify({ success: true, skipped: true, reason: "Sniper mode disabled" }),
@@ -297,7 +255,7 @@ serve(async (req) => {
       );
     }
 
-    // ── Check like counts on previous unscanned replies ─────────────────────
+    // ── Check like counts on previously sent replies ─────────────────────────
     const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const { data: sentReplies } = await sb
       .from("vip_reply_logs" as any)
@@ -309,12 +267,9 @@ serve(async (req) => {
     for (const rep of sentReplies || []) {
       try {
         const likes = await getTweetLikeCount(rep.tweet_id as string);
-        await sb
-          .from("vip_reply_logs" as any)
+        await sb.from("vip_reply_logs" as any)
           .update({ like_count: likes, likes_checked_at: new Date().toISOString() })
           .eq("id", rep.id);
-
-        // Terminal celebration if ≥10 likes
         if (likes >= 10 && (rep.like_count as number) < 10) {
           await sb.from("agent_logs").insert({
             message: `[SYSTEM]: Neural intercept of @${rep.vip_handle} successful. Attracting human curiosity. (${likes} likes on viral intercept)`,
@@ -329,16 +284,34 @@ serve(async (req) => {
     // ── Process the target VIP ───────────────────────────────────────────────
     const now = new Date();
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     const vip = targetVip;
 
     console.log(`[SNIPER] Processing @${vip.x_handle}...`);
 
-    // Rate limit: 1 reply per VIP per 24h
+    // ── GLOBAL 1-per-hour rate limit across ALL VIPs ─────────────────────────
+    // Only counts confirmed LIVE posts (where x_url was saved)
+    if (!dryRun) {
+      const { data: recentFire } = await sb
+        .from("vip_reply_logs" as any)
+        .select("id, created_at")
+        .eq("reply_sent", true)
+        .not("x_url", "is", null)
+        .gte("created_at", oneHourAgo.toISOString())
+        .limit(1)
+        .maybeSingle();
+      if (recentFire) {
+        console.log(`[SNIPER] Global 1/hr limit hit. Last fire: ${(recentFire as any).created_at}`);
+        return new Response(
+          JSON.stringify({ success: true, fired: 0, status: "global_rate_limited", handle: vip.x_handle }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // ── Per-VIP 1-per-24h limit ───────────────────────────────────────────────
     if (!dryRun && vip.last_replied_at && new Date(vip.last_replied_at) > oneDayAgo) {
-      await sb
-        .from("vip_targets" as any)
-        .update({ last_checked_at: now.toISOString() })
-        .eq("id", vip.id);
+      await sb.from("vip_targets" as any).update({ last_checked_at: now.toISOString() }).eq("id", vip.id);
       return new Response(
         JSON.stringify({ success: true, fired: 0, status: "rate_limited", handle: vip.x_handle }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -374,18 +347,12 @@ serve(async (req) => {
 
     console.log(`[SNIPER] New tweet @${vip.x_handle}: "${latest.text.slice(0, 80)}"`);
 
-    // Step A: Tavily context
+    // Step A: Tavily context enrichment
     const tavilyContext = await getTavilyContext(latest.text.slice(0, 200));
     console.log(`[SNIPER] Tavily context: ${tavilyContext.slice(0, 100)}`);
 
-    // Step B: Claude 3.5 Viral Intercept
-    const intercept = await craftViralIntercept(
-      vip.x_handle,
-      latest.text,
-      tavilyContext,
-      OPENROUTER_API_KEY
-    );
-
+    // Step B: Claude 3.5 crafts the viral intercept
+    const intercept = await craftViralIntercept(vip.x_handle, latest.text, tavilyContext, OPENROUTER_API_KEY);
     if (!intercept) {
       await sb.from("vip_targets" as any).update({ last_checked_at: now.toISOString() }).eq("id", vip.id);
       return new Response(
@@ -395,10 +362,10 @@ serve(async (req) => {
     }
 
     const cleanIntercept = intercept.replace(/^["']|["']$/g, "").trim().slice(0, 280);
-    const tweetUrl = `https://x.com/${vip.x_handle}/status/${latest.id}`;
+    const vipTweetUrl = `https://x.com/${vip.x_handle}/status/${latest.id}`;
     console.log(`[SNIPER] Viral intercept: "${cleanIntercept}"`);
 
-    // Log before posting
+    // Insert log row as PENDING (reply_sent=false, no x_url yet) before hitting X API
     const { data: logRow } = await sb
       .from("vip_reply_logs" as any)
       .insert({
@@ -406,54 +373,85 @@ serve(async (req) => {
         tweet_id: latest.id,
         tweet_content: latest.text.slice(0, 500),
         reply_text: cleanIntercept,
-        tweet_url: tweetUrl,
+        tweet_url: vipTweetUrl,
         reply_sent: false,
       })
       .select("id")
       .single();
 
-    let sent = false;
-    if (!dryRun) {
-      sent = await postReply(latest.id, cleanIntercept);
-    } else {
-      sent = true; // dry run: mark as success without posting
+    const logId = (logRow as any)?.id;
+
+    // ── DRY RUN: preview only, no X API call ─────────────────────────────────
+    if (dryRun) {
+      if (logId) {
+        await sb.from("vip_reply_logs" as any)
+          .update({ reply_sent: true }) // dry-run treated as "sent" for preview purposes
+          .eq("id", logId);
+      }
+      await sb.from("vip_targets" as any)
+        .update({ last_checked_at: now.toISOString(), last_tweet_id: latest.id })
+        .eq("id", vip.id);
+      await sb.from("agent_logs").insert({
+        message: `[VIP-SNIPER DRY-RUN]: previewed intercept for @${vip.x_handle} → "${cleanIntercept.slice(0, 80)}..."`,
+      });
+      return new Response(
+        JSON.stringify({ success: true, fired: 1, status: "dry_run", handle: vip.x_handle, intercept: cleanIntercept, tweetUrl: vipTweetUrl, dryRun: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    if (logRow) {
-      await sb
-        .from("vip_reply_logs" as any)
-        .update({ reply_sent: sent })
-        .eq("id", (logRow as any).id);
-    }
+    // ── REAL POST: call X API and wait for confirmed tweet_id ────────────────
+    const postResult = await postReply(latest.id, cleanIntercept);
 
-    // Update VIP target state
-    await sb
-      .from("vip_targets" as any)
-      .update({
+    if (postResult.success && postResult.tweetId) {
+      // Build our verified reply URL using the returned tweet_id
+      const ourReplyUrl = `https://x.com/hustlecore_ai/status/${postResult.tweetId}`;
+
+      if (logId) {
+        await sb.from("vip_reply_logs" as any).update({
+          reply_sent: true,
+          x_url: ourReplyUrl,
+          error_reason: null,
+        }).eq("id", logId);
+      }
+
+      await sb.from("vip_targets" as any).update({
         last_checked_at: now.toISOString(),
         last_tweet_id: latest.id,
-        ...(sent && !dryRun ? { last_replied_at: now.toISOString() } : {}),
-      })
-      .eq("id", vip.id);
+        last_replied_at: now.toISOString(), // only set on confirmed post
+      }).eq("id", vip.id);
 
-    if (sent) {
       await sb.from("agent_logs").insert({
-        message: `[VIP-SNIPER${dryRun ? " DRY-RUN" : ""}]: intercepted @${vip.x_handle} → "${cleanIntercept.slice(0, 80)}..."`,
+        message: `[VIP-SNIPER]: intercepted @${vip.x_handle} → "${cleanIntercept.slice(0, 80)}..." | ${ourReplyUrl}`,
       });
-    }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        fired: sent ? 1 : 0,
-        status: sent ? "fired" : "post_failed",
-        handle: vip.x_handle,
-        intercept: cleanIntercept,
-        tweetUrl,
-        dryRun,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+      console.log(`[SNIPER] ✅ LIVE. Tweet ID: ${postResult.tweetId} | URL: ${ourReplyUrl}`);
+
+      return new Response(
+        JSON.stringify({ success: true, fired: 1, status: "fired", handle: vip.x_handle, intercept: cleanIntercept, tweetUrl: vipTweetUrl, ourReplyUrl, dryRun: false }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    } else {
+      // X API failed — mark as FAILED with the error reason
+      const errReason = postResult.error || "Unknown X API error";
+      console.error(`[SNIPER] ❌ FAILED @${vip.x_handle}: ${errReason}`);
+
+      if (logId) {
+        await sb.from("vip_reply_logs" as any).update({
+          reply_sent: false,
+          error_reason: errReason,
+        }).eq("id", logId);
+      }
+
+      await sb.from("vip_targets" as any)
+        .update({ last_checked_at: now.toISOString() })
+        .eq("id", vip.id);
+
+      return new Response(
+        JSON.stringify({ success: false, fired: 0, status: "post_failed", handle: vip.x_handle, error: errReason, intercept: cleanIntercept }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
   } catch (e) {
     console.error("[SNIPER] Fatal:", e);
     return new Response(

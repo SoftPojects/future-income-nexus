@@ -1560,25 +1560,58 @@ const HustleAdmin = () => {
               <h3 className="font-display text-xs tracking-widest text-muted-foreground">INTERCEPT LOG</h3>
               {vipReplyLogs.length === 0 ? (
                 <p className="text-xs font-mono text-muted-foreground text-center py-6">No intercepts yet. Run DRY RUN or EXECUTE SNIPE.</p>
-              ) : vipReplyLogs.map((log: any) => (
-                <Card key={log.id} className="bg-card border-border hover:border-neon-magenta/20 transition-colors">
-                  <CardContent className="p-3">
-                    <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-neon-cyan">@{log.vip_handle}</span>
-                        {log.reply_sent ? <Badge className="text-[9px] bg-neon-green/15 text-neon-green border border-neon-green/30">LIVE</Badge> : <Badge className="text-[9px] bg-muted text-muted-foreground border-border">DRY RUN</Badge>}
-                        {(log.like_count || 0) >= 10 && <Badge className="text-[9px] bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">🔥 VIRAL {log.like_count} LIKES</Badge>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {log.tweet_url && <a href={log.tweet_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-neon-cyan"><ExternalLink className="w-3 h-3" /></a>}
+              ) : vipReplyLogs.map((log: any) => {
+                // Determine status: LIVE requires reply_sent=true AND x_url confirmed
+                const isLive = log.reply_sent === true && !!log.x_url;
+                const isFailed = log.reply_sent === false && !!log.error_reason;
+                const isDryRun = log.reply_sent === true && !log.x_url;
+                const isPending = log.reply_sent === false && !log.error_reason;
+
+                return (
+                  <Card key={log.id} className={`bg-card transition-colors ${isLive ? "border-neon-green/30" : isFailed ? "border-red-500/30" : isPending ? "border-yellow-500/30" : "border-border"}`}>
+                    <CardContent className="p-3">
+                      <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-xs font-bold text-neon-cyan">@{log.vip_handle}</span>
+                          {isLive && <Badge className="text-[9px] bg-neon-green/15 text-neon-green border border-neon-green/30">✅ LIVE</Badge>}
+                          {isFailed && <Badge className="text-[9px] bg-red-500/15 text-red-400 border border-red-500/30">❌ FAILED</Badge>}
+                          {isDryRun && <Badge className="text-[9px] bg-muted text-muted-foreground border-border">DRY RUN</Badge>}
+                          {isPending && <Badge className="text-[9px] bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">⏳ PENDING</Badge>}
+                          {(log.like_count || 0) >= 10 && <Badge className="text-[9px] bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">🔥 VIRAL {log.like_count} LIKES</Badge>}
+                        </div>
                         <span className="text-[9px] font-mono text-muted-foreground">{new Date(log.created_at).toLocaleString()}</span>
                       </div>
-                    </div>
-                    <p className="text-[10px] font-mono text-muted-foreground mb-1.5 line-clamp-1">VIP: "{log.tweet_content?.slice(0, 100)}…"</p>
-                    <p className="text-[11px] font-mono text-foreground/90 bg-neon-magenta/5 border border-neon-magenta/20 rounded p-2">↳ "{log.reply_text}"</p>
-                  </CardContent>
-                </Card>
-              ))}
+                      <p className="text-[10px] font-mono text-muted-foreground mb-1.5 line-clamp-1">VIP: "{log.tweet_content?.slice(0, 100)}…"</p>
+                      <p className="text-[11px] font-mono text-foreground/90 bg-neon-magenta/5 border border-neon-magenta/20 rounded p-2 mb-2">↳ "{log.reply_text}"</p>
+                      {isFailed && log.error_reason && (
+                        <p className="text-[9px] font-mono text-red-400 bg-red-500/5 border border-red-500/20 rounded px-2 py-1 mb-2">⚠️ ERROR: {log.error_reason}</p>
+                      )}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isLive && log.x_url && (
+                          <a
+                            href={log.x_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-mono font-bold bg-neon-green/15 text-neon-green border border-neon-green/40 hover:bg-neon-green/25 transition-colors"
+                          >
+                            <ExternalLink className="w-3 h-3" /> 🔗 VIEW ON X
+                          </a>
+                        )}
+                        {log.tweet_url && (
+                          <a
+                            href={log.tweet_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[9px] font-mono text-muted-foreground hover:text-neon-cyan transition-colors"
+                          >
+                            <ExternalLink className="w-2.5 h-2.5" /> VIP tweet ↗
+                          </a>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
 
             <div className="rounded-lg p-3 border border-border bg-muted/30 text-[10px] font-mono text-muted-foreground space-y-1">
