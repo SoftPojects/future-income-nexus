@@ -464,39 +464,52 @@ serve(async (req) => {
       upsert: true,
     });
 
-    // ─── STEP 3: Upload image to Twitter and post IMMEDIATELY (fast path <25s) ───
-    console.log("[MEDIA] FAST PATH: Uploading image to Twitter...");
-    const imgMediaId = await uploadMediaToTwitter(imgBase64, "image");
-
-    let tweetResult: { success: boolean; tweetId?: string; error?: string };
-    if (imgMediaId) {
-      tweetResult = await postTweetWithMedia(tweetText.slice(0, 280), imgMediaId);
-    } else {
-      // Fallback to text-only
-      console.warn("[MEDIA] Image upload failed, posting text-only");
-      const fallbackResp = await sb.functions.invoke("post-tweet", { body: { directPost: tweetText.slice(0, 280) } });
-      tweetResult = fallbackResp.data ? { success: true } : { success: false, error: "Fallback post failed" };
-    }
-
-    // Get stored image URL
+    // ─── STEP 3: Save image to storage (NEVER post to Twitter here) ───
     const { data: imgStoredData } = sb.storage.from("media-assets").getPublicUrl(imagePath);
     const storedImageUrl = imgStoredData.publicUrl;
 
-    // Save to tweet queue
+    // ─── STEP 4: Calculate a future scheduled_at (next available slot >= 1h from now) ───
+    // Find the next slot that is at least 1 hour in the future and not already occupied
+    const { data: pendingTimes } = await sb
+      .from("tweet_queue")
+      .select("scheduled_at")
+      .eq("status", "pending")
+      .order("scheduled_at", { ascending: true });
+
+    const occupiedTimes = new Set(
+      (pendingTimes || []).map((t: any) => new Date(t.scheduled_at).getTime())
+    );
+
+    // Space new media posts 3h apart from now
+    let scheduledAt = new Date(Date.now() + 3 * 60 * 60 * 1000); // default: 3h from now
+    // Nudge forward until we find an unoccupied slot (within 30min window)
+    let attempts = 0;
+    while (attempts < 24) {
+      const slotMs = scheduledAt.getTime();
+      const conflict = [...occupiedTimes].some(t => Math.abs(t - slotMs) < 30 * 60 * 1000);
+      if (!conflict) break;
+      scheduledAt = new Date(slotMs + 60 * 60 * 1000); // push 1h forward
+      attempts++;
+    }
+
+    console.log(`[MEDIA] Saving as PENDING tweet scheduled for: ${scheduledAt.toISOString()}`);
+
+    // ─── STEP 5: Insert tweet as PENDING (DO NOT post to Twitter) ───
     const { data: insertedTweet } = await sb.from("tweet_queue").insert({
       content: tweetText.slice(0, 280),
-      status: tweetResult.success ? "posted" : "error",
+      status: "pending",
       type: mode === "whale_tribute" ? "whale_tribute" : "premium",
       model_used: PREMIUM_MODEL,
-      posted_at: tweetResult.success ? new Date().toISOString() : null,
-      error_message: tweetResult.error || null,
+      scheduled_at: scheduledAt.toISOString(),
+      posted_at: null,
+      error_message: null,
       image_url: storedImageUrl || null,
       audio_url: null,
     }).select("id").single();
 
     const tweetId = insertedTweet?.id || null;
 
-    // ─── STEP 4: Create media_assets record and fire async worker ───
+    // ─── STEP 6: Create media_assets record and fire async worker for audio/video ───
     let mediaAssetId: string | null = null;
     if (tweetId) {
       const { data: assetRow } = await sb.from("media_assets").insert({
@@ -506,7 +519,7 @@ serve(async (req) => {
       }).select("id").single();
       mediaAssetId = assetRow?.id || null;
 
-      // Fire-and-forget async worker for audio + video
+      // Fire-and-forget async worker for audio + video (background only)
       if (mediaAssetId) {
         console.log(`[MEDIA] Triggering async-media-worker for asset ${mediaAssetId}`);
         fetch(`${supabaseUrl}/functions/v1/async-media-worker`, {
@@ -517,31 +530,21 @@ serve(async (req) => {
       }
     }
 
-    // Activity-based energy burn: Premium Media Post costs 2% extra
-    if (tweetResult.success) {
-      const { data: currentAgent } = await sb.from("agent_state").select("energy_level").limit(1).single();
-      if (currentAgent) {
-        const newEnergy = Math.max(0, +((Number(currentAgent.energy_level) - 2).toFixed(1)));
-        await sb.from("agent_state").update({ energy_level: newEnergy, updated_at: new Date().toISOString() }).neq("id", "00000000-0000-0000-0000-000000000000");
-        console.log(`[MEDIA CORE] Activity burn: -2% energy → ${newEnergy}%`);
-      }
-    }
-
-    const logMsg = tweetResult.success
-      ? `[MEDIA CORE]: ✅ Fast-path IMAGE deployed to X. ID: ${tweetResult.tweetId || "unknown"}. Async media queued: ${mediaAssetId || "none"}. [-2% energy]`
-      : `[MEDIA CORE]: ❌ ${mode} post failed: ${tweetResult.error}`;
+    const logMsg = `[MEDIA CORE]: ✅ ${mode} media post SAVED AS PENDING (scheduled: ${scheduledAt.toISOString()}). Image ready. Audio/Video rendering in background. Use POST NOW in admin to publish manually.`;
     await sb.from("agent_logs").insert({ message: logMsg });
 
     return new Response(JSON.stringify({
-      success: tweetResult.success,
-      tweetId: tweetResult.tweetId,
+      success: true,
+      status: "pending",
       queueId: tweetId,
       imageUrl: storedImageUrl,
       mediaAssetId,
+      scheduledAt: scheduledAt.toISOString(),
       mode,
       mediaType: "IMAGE",
       asyncPending: true,
       content: tweetText,
+      note: "Tweet saved as PENDING. It will NOT auto-post. Use POST NOW in admin panel or wait for scheduled time.",
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

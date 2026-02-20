@@ -367,21 +367,15 @@ serve(async (req) => {
           const shouldImage = FAL_KEY && imageCount < 4 && pillar !== "assassin";
           const shouldAudio = ELEVENLABS_API_KEY && audioCount < 2;
 
-          await sb.from("tweet_queue").insert({
+          // Insert as PENDING with correct future scheduled_at
+          // NEVER call generate-media-post or post-tweet here — this only queues text
+          const { data: insertedRow } = await sb.from("tweet_queue").insert({
             content: result.content.slice(0, 280),
             status: "pending",
             type: (result as any).tweetType || "automated",
             model_used: result.model,
             scheduled_at: schedDate.toISOString(),
-          });
-
-          // Generate media in background (best effort)
-          if (shouldImage) {
-            try {
-              await sb.functions.invoke("generate-media-post", { body: { mode: "premium" } });
-              imageCount++;
-            } catch (e) { console.error("Media gen error:", e); }
-          }
+          }).select("id").single();
 
           generated.push({ pillar, content: result.content.slice(0, 60), scheduledAt: schedDate.toISOString() });
         } catch (e) {
