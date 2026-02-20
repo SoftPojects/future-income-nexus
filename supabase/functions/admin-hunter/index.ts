@@ -239,6 +239,7 @@ async function generateRoast(
   balance: number,
   energy: number,
   lovableKey: string,
+  skipClaude = false,
 ): Promise<{ content: string; model: string }> {
   const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
 
@@ -265,8 +266,8 @@ RULES:
 
   const userPrompt = `Balance: $${balance}. Energy: ${energy}%. Write one masterpiece roast for @${handle}. Output ONLY the tweet text.`;
 
-  // Try Claude via OpenRouter first (30s timeout)
-  if (OPENROUTER_API_KEY) {
+  // Try Claude via OpenRouter first (30s timeout) — skip if daily cap hit
+  if (OPENROUTER_API_KEY && !skipClaude) {
     try {
       console.log(`[HUNTER GEN] Attempting Claude (${CLAUDE_MODEL}) via OpenRouter...`);
       const controller = new AbortController();
@@ -449,12 +450,11 @@ serve(async (req) => {
       const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
       if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-      // Check Claude daily cap
+      // Check Claude daily cap (max 4 premium tweets/day) — fall back to Gemini instead of erroring
       const claudeUsed = await getClaudeUsageToday(sb);
-      if (claudeUsed >= 4) {
-        return new Response(JSON.stringify({ error: "Claude daily cap reached (4/4). Try again tomorrow." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      const forceGeminiFallback = claudeUsed >= 4;
+      if (forceGeminiFallback) {
+        console.log(`[HUNTER ROAST] Claude daily cap reached (${claudeUsed}/4) — using Gemini fallback for this roast`);
       }
 
       console.log(`[HUNTER ROAST] === Starting tactical reply for @${target.x_handle} ===`);
@@ -524,10 +524,10 @@ serve(async (req) => {
         enhancedDossier = `${dossier}\n\nTARGET'S LATEST TWEET ANALYSIS:\n${tweetContext}\n\nTARGET'S ACTUAL TWEET: "${latestTweet!.text}"`;
       }
 
-      console.log("[HUNTER ROAST] Phase 5/5: Claude generating tactical roast...");
+      console.log("[HUNTER ROAST] Phase 5/5: Generating tactical roast...");
       const { content: rawContent, model: usedModel } = await generateRoast(
         target.x_handle, enhancedDossier, angle, recentContext,
-        agent?.total_hustled ?? 0, agent?.energy_level ?? 50, LOVABLE_API_KEY,
+        agent?.total_hustled ?? 0, agent?.energy_level ?? 50, LOVABLE_API_KEY, forceGeminiFallback,
       );
 
       let content = rawContent;
