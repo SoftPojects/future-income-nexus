@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -8,38 +9,80 @@ const CORS_HEADERS = {
 
 const TOKEN_ADDRESS = "0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
 const GECKO_URL = `https://api.geckoterminal.com/api/v2/networks/base/tokens/${TOKEN_ADDRESS}`;
-const CACHE_TTL_MS = 60_000; // Cache for 60 seconds to avoid rate limits
+const CACHE_TTL_SECONDS = 60; // 60 second persistent DB cache
 
-// In-memory cache shared across requests within the same function instance
-let cachedData: { json: unknown; expiresAt: number } | null = null;
+// Warm in-memory cache (secondary, resets on cold start)
+let memCache: { json: unknown; expiresAt: number } | null = null;
 
-async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const res = await fetch(`${url}?t=${Date.now()}`, {
-      headers: {
-        "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0",
-      },
+function getSupabase() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+  );
+}
+
+async function readDbCache(): Promise<unknown | null> {
+  try {
+    const supabase = getSupabase();
+    const { data } = await supabase
+      .from("system_settings")
+      .select("key, value")
+      .in("key", ["gecko_cache_data", "gecko_cache_expires_at"]);
+
+    if (!data || data.length < 2) return null;
+
+    const map: Record<string, string> = {};
+    data.forEach((row) => { map[row.key] = row.value; });
+
+    const expiresAt = parseInt(map["gecko_cache_expires_at"] ?? "0", 10);
+    if (Date.now() > expiresAt) {
+      console.log("[gecko-proxy] DB cache expired");
+      return null;
+    }
+
+    console.log("[gecko-proxy] Serving from DB cache");
+    return JSON.parse(map["gecko_cache_data"]);
+  } catch (e) {
+    console.warn("[gecko-proxy] DB cache read failed:", e);
+    return null;
+  }
+}
+
+async function writeDbCache(json: unknown): Promise<void> {
+  try {
+    const supabase = getSupabase();
+    const expiresAt = Date.now() + CACHE_TTL_SECONDS * 1000;
+    await supabase.from("system_settings").upsert([
+      { key: "gecko_cache_data", value: JSON.stringify(json) },
+      { key: "gecko_cache_expires_at", value: String(expiresAt) },
+    ], { onConflict: "key" });
+    console.log("[gecko-proxy] DB cache updated, expires in 60s");
+  } catch (e) {
+    console.warn("[gecko-proxy] DB cache write failed:", e);
+  }
+}
+
+async function fetchFromGecko(): Promise<unknown> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(`${GECKO_URL}?t=${Date.now()}`, {
+      headers: { "Accept": "application/json", "User-Agent": "Mozilla/5.0" },
     });
 
     if (res.status === 429) {
       const retryAfter = res.headers.get("Retry-After");
-      let delayMs = Math.pow(2, attempt) * 1500; // 1.5s, 3s, 6s, 12s
-
-      if (retryAfter) {
-        const seconds = parseInt(retryAfter, 10);
-        if (!isNaN(seconds)) delayMs = seconds * 1000;
-      }
-
-      // Add jitter
-      delayMs += Math.random() * 500;
-
-      console.warn(`[gecko-proxy] 429 rate limited. Waiting ${delayMs.toFixed(0)}ms before retry ${attempt + 1}/${maxRetries}`);
+      const delayMs = retryAfter
+        ? parseInt(retryAfter, 10) * 1000
+        : Math.pow(2, attempt) * 2000;
+      console.warn(`[gecko-proxy] 429 rate limited. Waiting ${delayMs}ms (attempt ${attempt + 1}/2)`);
       await new Promise((r) => setTimeout(r, delayMs));
       continue;
     }
 
-    return res;
+    if (!res.ok) {
+      throw new Error(`GeckoTerminal returned HTTP ${res.status}`);
+    }
+
+    return await res.json();
   }
 
   throw new Error("GeckoTerminal rate limit: max retries exceeded");
@@ -51,29 +94,32 @@ serve(async (req) => {
   }
 
   try {
-    // Serve from cache if still valid
-    if (cachedData && Date.now() < cachedData.expiresAt) {
-      console.log("[gecko-proxy] Serving from cache");
-      return new Response(JSON.stringify(cachedData.json), {
+    // 1. Check warm in-memory cache (fastest)
+    if (memCache && Date.now() < memCache.expiresAt) {
+      console.log("[gecko-proxy] Serving from memory cache");
+      return new Response(JSON.stringify(memCache.json), {
         status: 200,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "HIT" },
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "MEM" },
       });
     }
 
-    const res = await fetchWithRetry(GECKO_URL);
-
-    if (!res.ok) {
-      return new Response(
-        JSON.stringify({ error: `GeckoTerminal returned HTTP ${res.status}` }),
-        { status: res.status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
-      );
+    // 2. Check persistent DB cache (survives cold starts)
+    const dbCached = await readDbCache();
+    if (dbCached) {
+      // Warm the memory cache too
+      memCache = { json: dbCached, expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000 };
+      return new Response(JSON.stringify(dbCached), {
+        status: 200,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "DB" },
+      });
     }
 
-    const data = await res.json();
+    // 3. Fetch fresh data from GeckoTerminal
+    const data = await fetchFromGecko();
 
-    // Store in cache
-    cachedData = { json: data, expiresAt: Date.now() + CACHE_TTL_MS };
-    console.log("[gecko-proxy] Cached fresh data, expires in 60s");
+    // Update both caches
+    memCache = { json: data, expiresAt: Date.now() + CACHE_TTL_SECONDS * 1000 };
+    await writeDbCache(data);
 
     return new Response(JSON.stringify(data), {
       status: 200,
@@ -81,6 +127,24 @@ serve(async (req) => {
     });
   } catch (err) {
     console.error("[gecko-proxy] Error:", err);
+
+    // Last resort: try to serve stale DB cache rather than failing
+    try {
+      const supabase = getSupabase();
+      const { data } = await supabase
+        .from("system_settings")
+        .select("value")
+        .eq("key", "gecko_cache_data")
+        .single();
+      if (data?.value) {
+        console.warn("[gecko-proxy] Serving stale cache as fallback");
+        return new Response(data.value, {
+          status: 200,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json", "X-Cache": "STALE" },
+        });
+      }
+    } catch (_) { /* ignore */ }
+
     return new Response(
       JSON.stringify({ error: String(err) }),
       { status: 500, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } }
