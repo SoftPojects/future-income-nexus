@@ -188,6 +188,7 @@ const HustleAdmin = () => {
   const [editingHandle, setEditingHandle] = useState("");
   const [dailyQuota, setDailyQuota] = useState<{ follows_count: number; likes_count: number; follows_limit: number; likes_limit: number } | null>(null);
   const [pulseRunning, setPulseRunning] = useState(false);
+  const [forceFollowing, setForceFollowing] = useState(false);
   const [injectingMedia, setInjectingMedia] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -1126,7 +1127,7 @@ const HustleAdmin = () => {
                         }} />
                       </div>
                     </div>
-                    <p className="text-[9px] font-mono text-muted-foreground">Resets at midnight UTC • Runs every 30 min • 60% idle / 30% like / 10% follow</p>
+                    <p className="text-[9px] font-mono text-muted-foreground">Resets at midnight UTC • Runs every 30 min • 40% follow / 40% like / 20% idle (manual targets first)</p>
                   </>
                 ) : (
                   <p className="text-[10px] font-mono text-muted-foreground">No activity today yet. Social Pulse runs every 30 minutes.</p>
@@ -1136,7 +1137,23 @@ const HustleAdmin = () => {
 
             <div className="flex items-center justify-between">
               <h2 className="font-display text-sm tracking-widest text-muted-foreground">RECENT ACTIVITY ({socialLogs.length})</h2>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap justify-end">
+                <NeuralTooltip content="FORCE FOLLOW: Immediately picks the next target in queue and performs Follow + Like, bypassing the random weight roll.">
+                  <Button onClick={async () => {
+                    setForceFollowing(true);
+                    try {
+                      const { data, error } = await supabase.functions.invoke("social-pulse", { body: { forceFollow: true } });
+                      if (error) throw error;
+                      const action = data?.action || "error";
+                      const msg = action === "follow" ? `Followed @${data?.target}` : action === "error" ? `Error: ${data?.reason}` : `Skipped: ${data?.reason}`;
+                      toast({ title: `FORCE FOLLOW: ${action.toUpperCase()}`, description: msg });
+                      fetchSocialLogs(); fetchDailyQuota(); fetchNextTargets();
+                    } catch (e) { toast({ title: "Force follow failed", description: String(e), variant: "destructive" }); }
+                    finally { setForceFollowing(false); }
+                  }} disabled={forceFollowing || pulseRunning} size="sm" className="bg-neon-magenta/10 border border-neon-magenta/30 text-neon-magenta hover:bg-neon-magenta/20">
+                    {forceFollowing ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Following...</> : <>🎯 FORCE FOLLOW</>}
+                  </Button>
+                </NeuralTooltip>
                 <NeuralTooltip content="Forces an immediate autonomous cycle. Triggers X-scanning, terminal log generation, and scheduled social actions without waiting for the next timer tick.">
                   <Button onClick={async () => {
                     setPulseRunning(true);
@@ -1149,7 +1166,7 @@ const HustleAdmin = () => {
                       fetchSocialLogs(); fetchDailyQuota(); fetchNextTargets();
                     } catch (e) { toast({ title: "Pulse failed", description: String(e), variant: "destructive" }); }
                     finally { setPulseRunning(false); }
-                  }} disabled={pulseRunning} size="sm" className="bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20">
+                  }} disabled={pulseRunning || forceFollowing} size="sm" className="bg-neon-green/10 border border-neon-green/30 text-neon-green hover:bg-neon-green/20">
                     {pulseRunning ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Running...</> : <>⚡ TRIGGER PULSE</>}
                   </Button>
                 </NeuralTooltip>
