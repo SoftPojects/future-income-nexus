@@ -26,6 +26,8 @@ import TradeHcoreButton from "@/components/TradeHcoreButton";
 import TokenStatus from "@/components/TokenStatus";
 import CountdownBanner from "@/components/CountdownBanner";
 import HuntingIndicator from "@/components/HuntingIndicator";
+import GeckoChart from "@/components/GeckoChart";
+import CryptoTicker from "@/components/CryptoTicker";
 import { useAgentStateMachine } from "@/hooks/useAgentStateMachine";
 import { useHcoreToken } from "@/hooks/useHcoreToken";
 import { useAudioSystem } from "@/hooks/useAudioSystem";
@@ -86,6 +88,9 @@ const Index = () => {
   const [isDonor, setIsDonor] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [feedTrigger, setFeedTrigger] = useState(0);
+  const [livePrice, setLivePrice] = useState<number | null>(null);
+  const [livePriceChange, setLivePriceChange] = useState<number | null>(null);
+  const statsLogFiredRef = useRef(false);
 
   // Neural suggestions — uses live market cap from TokenStatus via a shared ref approach
   const [liveMarketCap, setLiveMarketCap] = useState<number | null>(null);
@@ -95,6 +100,21 @@ const Index = () => {
     const label = marketCap >= 1000 ? `$${(marketCap / 1000).toFixed(0)}K` : `$${marketCap.toFixed(0)}`;
     agent.addLog(
       `[MARKET]: $HCORE floor rising to ${label}. Intelligence is becoming more expensive. Keep up, meat-hooks.`
+    );
+  }, [agent.addLog]);
+
+  const handleMarketCapChange = useCallback((mc: number | null) => {
+    setLiveMarketCap(mc);
+    if (mc && mc > 0) setLivePrice(mc / 1_000_000_000);
+  }, []);
+
+  const handleStatsReady = useCallback((liquidity: number, volume: number) => {
+    if (statsLogFiredRef.current) return;
+    statsLogFiredRef.current = true;
+    const liq = liquidity >= 1000 ? `$${(liquidity / 1000).toFixed(1)}K` : `$${liquidity.toFixed(0)}`;
+    const vol = volume >= 1000 ? `$${(volume / 1000).toFixed(1)}K` : `$${volume.toFixed(0)}`;
+    agent.addLog(
+      `[DATA]: 24h Volume at ${vol}. Liquidity depth ${liq}. Pool stable — Phase 2 initialization conditions met.`
     );
   }, [agent.addLog]);
   const prevLogCount = useRef(0);
@@ -363,6 +383,9 @@ const Index = () => {
           </motion.div>
         </div>
 
+        {/* Live Chart — full width below terminal */}
+        <GeckoChart />
+
         <StatCards
           totalHustled={agent.totalHustled}
           energy={agent.energy}
@@ -372,7 +395,8 @@ const Index = () => {
           tokenNode={
             <TokenStatus
               onMilestone={handleMarketMilestone}
-              onMarketCapChange={setLiveMarketCap}
+              onMarketCapChange={handleMarketCapChange}
+              onStatsReady={handleStatsReady}
             />
           }
         />
@@ -467,6 +491,9 @@ const Index = () => {
           <span className="text-neon-cyan">LATENCY: 12ms</span>
         </motion.div>
       </main>
+
+      {/* Crypto Ticker — scrolling market data tape */}
+      <CryptoTicker hcorePrice={livePrice} hcoreChange={livePriceChange} />
 
       {/* Celebration Overlay */}
       <CelebrationOverlay active={agent.celebrating} onComplete={() => agent.setCelebrating(false)} />
