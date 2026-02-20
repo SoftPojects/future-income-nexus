@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 const TOKEN_ADDRESS = "0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
-const API_URL = `https://api.dexscreener.com/latest/dex/tokens/${TOKEN_ADDRESS}`;
+const BASE_API_URL = `https://api.dexscreener.com/latest/dex/tokens/${TOKEN_ADDRESS}`;
 const MIGRATION_MARKET_CAP = 50000; // Virtuals Protocol migration threshold in USD
-const FETCH_INTERVAL_MS = 60_000; // 60 seconds
+const FETCH_INTERVAL_MS = 30_000; // 30 seconds
 
 export interface TokenData {
   marketCap: number | null;
@@ -22,7 +22,15 @@ function formatMarketCap(value: number): string {
 
 async function fetchTokenData(): Promise<{ fdv: number; priceUsd: number; priceChangeH24: number } | null> {
   try {
-    const res = await fetch(API_URL, { cache: "no-store" });
+    const url = `${BASE_API_URL}?t=${Date.now()}`;
+    const res = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Accept": "application/json",
+      },
+    });
     if (!res.ok) return null;
     const json = await res.json();
     const pairs: any[] = json?.pairs ?? [];

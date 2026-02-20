@@ -47,16 +47,17 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
     >
       <div className="flex items-center gap-1.5">
         <span className="text-muted-foreground tracking-widest">$HCORE TOKEN</span>
-        {!isLoading && !isError && (
-          <motion.span
-            className="w-1.5 h-1.5 rounded-full bg-neon-green"
-            animate={{ opacity: [1, 0.3, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
-        )}
-        {isError && (
+        {!isLoading && !isError ? (
+          <span className="inline-flex items-center gap-1">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-neon-green opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-neon-green" />
+            </span>
+            <span className="text-[9px] text-neon-green font-bold tracking-widest">LIVE</span>
+          </span>
+        ) : isError ? (
           <span className="text-destructive/60 text-[9px]">OFFLINE</span>
-        )}
+        ) : null}
       </div>
 
       <div className="flex items-center gap-1.5">
