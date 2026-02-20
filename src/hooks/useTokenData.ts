@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-const TOKEN_ADDRESS = "0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
-// Route through our server-side proxy to avoid CORS blocking
-const GECKO_PROXY_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gecko-proxy`;
 const TOTAL_SUPPLY = 1_000_000_000; // $HCORE fixed total supply
 const MIGRATION_MARKET_CAP = 50_000; // Virtuals Protocol migration threshold in USD
 const FETCH_INTERVAL_MS = 30_000; // 30 seconds
@@ -78,21 +75,14 @@ async function fetchDonationsFallback(): Promise<number | null> {
 
 async function fetchGeckoTerminal(): Promise<{ fdv: number; priceUsd: number; priceChangeH24: number } | null> {
   try {
-    const url = `${GECKO_PROXY_URL}?t=${Date.now()}`;
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache",
-        "Accept": "application/json",
-        "apikey": import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      },
-    });
-    if (!res.ok) {
-      console.warn(`[GECKO] HTTP ${res.status} — request failed`);
+    // Use supabase.functions.invoke to avoid CORS issues
+    const { data: json, error } = await supabase.functions.invoke("gecko-proxy");
+
+    if (error) {
+      console.warn("[GECKO] Proxy error:", error.message);
       return null;
     }
-    const json = await res.json();
+
     console.log("[GECKO] Raw response:", json);
 
     const attrs = json?.data?.attributes;
@@ -107,9 +97,10 @@ async function fetchGeckoTerminal(): Promise<{ fdv: number; priceUsd: number; pr
       return null;
     }
 
-    // Use market_cap_usd if available, otherwise calculate from price * total supply
+    // Use fdv_usd if available, otherwise market_cap_usd, otherwise calculate
+    const rawFdv = attrs.fdv_usd ? parseFloat(attrs.fdv_usd) : null;
     const rawMcap = attrs.market_cap_usd ? parseFloat(attrs.market_cap_usd) : null;
-    const fdv = rawMcap && rawMcap > 0 ? rawMcap : priceUsd * TOTAL_SUPPLY;
+    const fdv = (rawFdv && rawFdv > 0) ? rawFdv : (rawMcap && rawMcap > 0) ? rawMcap : priceUsd * TOTAL_SUPPLY;
 
     // GeckoTerminal returns price_change_percentage as an object with h24 key
     const rawH24 =
@@ -119,7 +110,7 @@ async function fetchGeckoTerminal(): Promise<{ fdv: number; priceUsd: number; pr
     const priceChangeH24 = rawH24 !== null ? parseFloat(String(rawH24)) : 0;
 
     console.log(
-      `[GECKO] price=$${priceUsd} | fdv=$${fdv} | h24=${priceChangeH24}% | mcap_source=${rawMcap ? "api" : "calculated"}`
+      `[GECKO] price=$${priceUsd} | fdv=$${fdv} | h24=${priceChangeH24}% | fdv_source=${rawFdv ? "fdv_usd" : rawMcap ? "market_cap_usd" : "calculated"}`
     );
 
     return { fdv, priceUsd, priceChangeH24 };
