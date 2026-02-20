@@ -8,6 +8,8 @@ import type { HcoreTokenInfo } from "@/hooks/useHcoreToken";
 import GlobalChat from "@/components/GlobalChat";
 import VoiceSpeakButton from "@/components/VoiceSpeakButton";
 import NeuralSuggestions from "@/components/NeuralSuggestions";
+import TerminalLogLine from "@/components/TerminalLogLine";
+import TerminalStatusTicker from "@/components/TerminalStatusTicker";
 import { useSmartScroll } from "@/hooks/useSmartScroll";
 
 interface ChatMessage {
@@ -41,7 +43,16 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback, neuralSuggestions
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [newLogCount, setNewLogCount] = useState(0);
+  const prevLogsLengthRef = useRef(logs.length);
   const { scrollRef, handleScroll } = useSmartScroll([logs, chatMessages]);
+
+  // Track new log arrivals for typewriter effect
+  useEffect(() => {
+    const added = logs.length - prevLogsLengthRef.current;
+    if (added > 0) setNewLogCount(added);
+    prevLogsLengthRef.current = logs.length;
+  }, [logs.length]);
 
   // Load private chat history from localStorage
   useEffect(() => {
@@ -50,15 +61,6 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback, neuralSuggestions
       if (stored) setChatMessages(JSON.parse(stored));
     } catch {}
   }, []);
-
-  const getLineColor = (line: string) => {
-    if (line.startsWith("[SUCCESS]")) return "text-neon-green text-glow-green";
-    if (line.startsWith("[ALERT]")) return "text-neon-magenta text-glow-magenta";
-    if (line.startsWith("[ERROR]")) return "text-destructive";
-    if (line.startsWith("[DATA]")) return "text-yellow-400";
-    if (line.startsWith("[TIP]")) return "text-neon-green text-glow-green font-bold";
-    return "text-neon-cyan";
-  };
 
   const stateIndicatorColor =
     agentState === "hustling" ? "bg-neon-green" : agentState === "resting" ? "bg-yellow-400" : "bg-muted-foreground";
@@ -172,6 +174,11 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback, neuralSuggestions
         />
       </div>
 
+      {/* Dynamic status ticker — always visible */}
+      {activeTab !== "global" && (
+        <TerminalStatusTicker agentState={agentState} energy={energy} />
+      )}
+
       {/* Content area */}
       {activeTab === "global" ? (
         <GlobalChat userInfo={userInfo} voicePlayback={voicePlayback} />
@@ -252,31 +259,19 @@ const Terminal = ({ logs, agentState, userInfo, voicePlayback, neuralSuggestions
                   exit={{ opacity: 0 }}
                 >
                   {logs.map((line, i) => (
-                    <motion.div
+                    <TerminalLogLine
                       key={`${i}-${line}`}
-                      className={`font-mono flex items-start ${getLineColor(line)}`}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <span className="text-muted-foreground mr-2 text-[10px] shrink-0">
-                        {String(i + 1).padStart(3, "0")}
-                      </span>
-                      <span className="flex-1">{line}</span>
-                      {voicePlayback && (
-                        <VoiceSpeakButton
-                          text={line}
-                          id={`log-${i}`}
-                          playingId={voicePlayback.playingId}
-                          onPlay={voicePlayback.playText}
-                        />
-                      )}
-                    </motion.div>
+                      line={line}
+                      index={i}
+                      isNew={i >= logs.length - newLogCount}
+                      voicePlayback={voicePlayback}
+                    />
                   ))}
+                  {/* Blinking cursor at end of log */}
                   <motion.span
-                    className="inline-block w-2 h-4 bg-neon-cyan ml-1"
-                    animate={{ opacity: [1, 0] }}
-                    transition={{ duration: 0.8, repeat: Infinity }}
+                    className="inline-block w-1.5 h-3.5 bg-neon-cyan ml-8 align-middle opacity-80"
+                    animate={{ opacity: [0.8, 0] }}
+                    transition={{ duration: 0.7, repeat: Infinity }}
                   />
                 </motion.div>
               )}
