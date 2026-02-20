@@ -87,7 +87,7 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
     const rawH6 = best.priceChange?.h6;
     const priceChangeH24 = parseFloat(String(rawH24 ?? rawH6 ?? "0"));
 
-    console.log(`RAW_PRICE: ${rawPriceStr}, FINAL_MCAP: ${calculatedMarketCap}`);
+    console.log(`RAW_PRICE: ${rawPriceStr}, CALCULATED_MCAP: ${calculatedMarketCap}`);
     console.log(`[DEX] pair=${best.dexId} | liquidity=$${best.liquidity?.usd} | 24h=${priceChangeH24}%`);
 
     return { fdv: calculatedMarketCap, priceUsd, priceChangeH24 };
