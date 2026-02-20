@@ -362,6 +362,7 @@ export type Database = {
         Row: {
           created_at: string
           error_message: string | null
+          error_reason: string | null
           id: string
           like_count: number | null
           likes_checked_at: string | null
@@ -371,10 +372,12 @@ export type Database = {
           tweet_id: string
           tweet_url: string | null
           vip_handle: string
+          x_url: string | null
         }
         Insert: {
           created_at?: string
           error_message?: string | null
+          error_reason?: string | null
           id?: string
           like_count?: number | null
           likes_checked_at?: string | null
@@ -384,10 +387,12 @@ export type Database = {
           tweet_id: string
           tweet_url?: string | null
           vip_handle: string
+          x_url?: string | null
         }
         Update: {
           created_at?: string
           error_message?: string | null
+          error_reason?: string | null
           id?: string
           like_count?: number | null
           likes_checked_at?: string | null
@@ -397,6 +402,7 @@ export type Database = {
           tweet_id?: string
           tweet_url?: string | null
           vip_handle?: string
+          x_url?: string | null
         }
         Relationships: []
       }
