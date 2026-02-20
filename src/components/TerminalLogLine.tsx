@@ -12,24 +12,30 @@ interface TerminalLogLineProps {
   };
 }
 
-const getLineColor = (line: string) => {
-  if (line.startsWith("[SUCCESS]")) return "text-neon-green text-glow-green";
-  if (line.startsWith("[ALERT]")) return "text-neon-magenta text-glow-magenta";
-  if (line.startsWith("[ERROR]")) return "text-destructive";
-  if (line.startsWith("[DATA]")) return "text-yellow-400";
-  if (line.startsWith("[TIP]")) return "text-neon-green text-glow-green font-bold";
-  if (line.startsWith("[MARKET]")) return "text-yellow-400";
-  return "text-neon-cyan";
+type LogMeta = {
+  color: string;
+  glyph: string;
+  glyphColor: string;
+  borderColor: string;
+  flashBg: string;
 };
 
-const getLinePrefix = (line: string) => {
-  if (line.startsWith("[SUCCESS]")) return "▶";
-  if (line.startsWith("[ALERT]")) return "⚠";
-  if (line.startsWith("[ERROR]")) return "✖";
-  if (line.startsWith("[DATA]")) return "◈";
-  if (line.startsWith("[TIP]")) return "★";
-  if (line.startsWith("[MARKET]")) return "↑";
-  return "›";
+const getLineMeta = (line: string): LogMeta => {
+  if (line.startsWith("[SUCCESS]"))
+    return { color: "text-neon-green text-glow-green", glyph: "▶", glyphColor: "text-neon-green", borderColor: "border-l-neon-green/50", flashBg: "hsl(120 100% 50% / 0.05)" };
+  if (line.startsWith("[ALERT]"))
+    return { color: "text-neon-magenta text-glow-magenta", glyph: "⚠", glyphColor: "text-neon-magenta", borderColor: "border-l-neon-magenta/50", flashBg: "hsl(300 100% 50% / 0.05)" };
+  if (line.startsWith("[ERROR]"))
+    return { color: "text-destructive", glyph: "✖", glyphColor: "text-destructive", borderColor: "border-l-destructive/50", flashBg: "hsl(0 84% 60% / 0.05)" };
+  if (line.startsWith("[DATA]"))
+    return { color: "text-yellow-400", glyph: "◈", glyphColor: "text-yellow-400", borderColor: "border-l-yellow-400/50", flashBg: "hsl(45 100% 50% / 0.05)" };
+  if (line.startsWith("[TIP]"))
+    return { color: "text-neon-green text-glow-green font-bold", glyph: "★", glyphColor: "text-neon-green", borderColor: "border-l-neon-green/80", flashBg: "hsl(120 100% 50% / 0.08)" };
+  if (line.startsWith("[MARKET]"))
+    return { color: "text-yellow-400", glyph: "↑", glyphColor: "text-yellow-400", borderColor: "border-l-yellow-400/40", flashBg: "hsl(45 100% 50% / 0.04)" };
+  if (line.startsWith("[SYSTEM]"))
+    return { color: "text-neon-cyan", glyph: "⬡", glyphColor: "text-neon-cyan/70", borderColor: "border-l-neon-cyan/20", flashBg: "hsl(180 100% 50% / 0.04)" };
+  return { color: "text-neon-cyan", glyph: "›", glyphColor: "text-neon-cyan/50", borderColor: "border-l-transparent", flashBg: "hsl(180 100% 50% / 0.03)" };
 };
 
 /** Typewriter effect for newly added lines */
@@ -56,46 +62,50 @@ function useTypewriter(text: string, isNew: boolean, speed = 18) {
 
 const TerminalLogLine = ({ line, index, isNew = false, voicePlayback }: TerminalLogLineProps) => {
   const { displayed, done } = useTypewriter(line, isNew);
-  const color = getLineColor(line);
-  const prefix = getLinePrefix(line);
+  const { color, glyph, glyphColor, borderColor, flashBg } = getLineMeta(line);
 
   return (
     <motion.div
-      className={`font-mono flex items-start gap-2 group py-0.5 ${color}`}
-      initial={isNew ? { opacity: 0, x: -8, backgroundColor: "hsl(180 100% 50% / 0.06)" } : { opacity: 1 }}
+      className={`font-mono flex items-start gap-2 group py-0.5 pl-2 border-l-2 ${borderColor} ${color}`}
+      initial={isNew ? { opacity: 0, x: -6, backgroundColor: flashBg } : { opacity: 1 }}
       animate={{ opacity: 1, x: 0, backgroundColor: "transparent" }}
-      transition={{ duration: isNew ? 0.25 : 0, backgroundColor: { duration: 1.5 } }}
+      transition={{ duration: isNew ? 0.2 : 0, backgroundColor: { duration: 2 } }}
     >
       {/* Line number */}
-      <span className="text-muted-foreground text-[9px] shrink-0 mt-px select-none w-7 text-right">
+      <span className="text-muted-foreground text-[9px] shrink-0 mt-px select-none w-6 text-right tabular-nums">
         {String(index + 1).padStart(3, "0")}
       </span>
 
-      {/* Prefix glyph */}
-      <span className="shrink-0 text-[10px] mt-px opacity-60">{prefix}</span>
+      {/* Prefix glyph — color-matched, slightly larger */}
+      <span className={`shrink-0 text-[11px] mt-px font-bold ${glyphColor}`} aria-hidden>
+        {glyph}
+      </span>
 
       {/* Content */}
-      <span className="flex-1 leading-relaxed text-[11px]">
+      <span className="flex-1 leading-relaxed text-[11px] break-all">
         {displayed}
         {isNew && !done && (
           <motion.span
             className="inline-block w-1.5 h-3 bg-current ml-0.5 align-middle"
             animate={{ opacity: [1, 0] }}
-            transition={{ duration: 0.5, repeat: Infinity }}
+            transition={{ duration: 0.45, repeat: Infinity }}
           />
         )}
       </span>
 
-      {/* Voice button — only on completed lines */}
+      {/* Voice button — revealed on hover, only after typewriter completes */}
       {done && voicePlayback && (
-        <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <motion.span
+          className="opacity-0 group-hover:opacity-100 shrink-0"
+          transition={{ duration: 0.15 }}
+        >
           <VoiceSpeakButton
             text={line}
             id={`log-${index}`}
             playingId={voicePlayback.playingId}
             onPlay={voicePlayback.playText}
           />
-        </span>
+        </motion.span>
       )}
     </motion.div>
   );
