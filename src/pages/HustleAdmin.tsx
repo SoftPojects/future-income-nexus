@@ -290,12 +290,8 @@ const HustleAdmin = () => {
   const fetchGeckoFeed = useCallback(async () => {
     setGeckoFeedLoading(true);
     try {
-      const res = await fetch(
-        `https://api.geckoterminal.com/api/v2/networks/base/tokens/0xdD831E3f9e845bc520B5Df57249112Cf6879bE94?t=${Date.now()}`,
-        { cache: "no-store", headers: { Accept: "application/json" } }
-      );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const { data: json, error } = await supabase.functions.invoke("gecko-proxy");
+      if (error) throw error;
       const attrs = json?.data?.attributes;
       if (attrs?.price_usd) {
         setGeckoFeedPrice(parseFloat(attrs.price_usd).toFixed(9).replace(/0+$/, "").replace(/\.$/, ""));
