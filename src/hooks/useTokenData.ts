@@ -2,13 +2,13 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 const TOKEN_ADDRESS = "0xdD831E3f9e845bc520B5Df57249112Cf6879bE94";
-const BASE_API_URL = `https://api.dexscreener.com/latest/dex/tokens/${TOKEN_ADDRESS}`;
+const GECKO_API_URL = `https://api.geckoterminal.com/api/v2/networks/base/tokens/${TOKEN_ADDRESS}`;
 const TOTAL_SUPPLY = 1_000_000_000; // $HCORE fixed total supply
 const MIGRATION_MARKET_CAP = 50_000; // Virtuals Protocol migration threshold in USD
 const FETCH_INTERVAL_MS = 30_000; // 30 seconds
 
-// If DEX market cap is below this threshold, prefer the manual override
-const DEX_FLOOR_MCAP = 5_100;
+// If live market cap is below this threshold, prefer the manual override
+const LIVE_FLOOR_MCAP = 5_100;
 
 export interface TokenData {
   marketCap: number | null;
@@ -75,9 +75,9 @@ async function fetchDonationsFallback(): Promise<number | null> {
   }
 }
 
-async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; priceChangeH24: number } | null> {
+async function fetchGeckoTerminal(): Promise<{ fdv: number; priceUsd: number; priceChangeH24: number } | null> {
   try {
-    const url = `${BASE_API_URL}?t=${Date.now()}`;
+    const url = `${GECKO_API_URL}?t=${Date.now()}`;
     const res = await fetch(url, {
       cache: "no-store",
       headers: {
@@ -87,56 +87,42 @@ async function fetchDexScreener(): Promise<{ fdv: number; priceUsd: number; pric
       },
     });
     if (!res.ok) {
-      console.warn(`[DEX] HTTP ${res.status} — request failed`);
+      console.warn(`[GECKO] HTTP ${res.status} — request failed`);
       return null;
     }
     const json = await res.json();
-    console.log("DEX_RESPONSE:", json);
+    console.log("[GECKO] Raw response:", json);
 
-    const pairs: any[] = json?.pairs ?? [];
-    if (!pairs.length) {
-      console.warn("[DEX] No pairs returned — token may not be listed yet.");
+    const attrs = json?.data?.attributes;
+    if (!attrs) {
+      console.warn("[GECKO] No token attributes in response — token may not be indexed yet.");
       return null;
     }
 
-    // Strict filter: must match our token address on Base chain
-    const filtered = pairs.filter(
-      (p) =>
-        p.chainId === "base" &&
-        p.baseToken?.address?.toLowerCase() === TOKEN_ADDRESS.toLowerCase()
-    );
-
-    if (!filtered.length) {
-      console.warn("[DEX] No matching Base chain pairs for this token address.");
+    const priceUsd = parseFloat(attrs.price_usd ?? "0");
+    if (!priceUsd || priceUsd <= 0) {
+      console.warn("[GECKO] price_usd is zero or missing.");
       return null;
     }
 
-    // Log every pair for diagnostics
-    filtered.forEach((p, i) => {
-      console.log(
-        `[DEX] pair[${i}]: dex=${p.dexId} | priceUsd=${p.priceUsd} | liquidity=$${p.liquidity?.usd} | h24=${p.priceChange?.h24}%`
-      );
-    });
+    // Use market_cap_usd if available, otherwise calculate from price * total supply
+    const rawMcap = attrs.market_cap_usd ? parseFloat(attrs.market_cap_usd) : null;
+    const fdv = rawMcap && rawMcap > 0 ? rawMcap : priceUsd * TOTAL_SUPPLY;
 
-    // Pick the pair with HIGHEST LIQUIDITY — the real main trading pool
-    const best = filtered.reduce((a, b) =>
-      parseFloat(String(b.liquidity?.usd ?? "0")) > parseFloat(String(a.liquidity?.usd ?? "0")) ? b : a
+    // GeckoTerminal returns price_change_percentage as an object with h24 key
+    const rawH24 =
+      attrs.price_change_percentage?.h24 ??
+      attrs.price_change_percentage?.["24h"] ??
+      null;
+    const priceChangeH24 = rawH24 !== null ? parseFloat(String(rawH24)) : 0;
+
+    console.log(
+      `[GECKO] price=$${priceUsd} | fdv=$${fdv} | h24=${priceChangeH24}% | mcap_source=${rawMcap ? "api" : "calculated"}`
     );
 
-    const rawPrice = String(best.priceUsd ?? "0");
-    const mcap = parseFloat(rawPrice) * TOTAL_SUPPLY;
-
-    console.log(`CHOSEN_PAIR_LIQUIDITY: ${best.liquidity?.usd}, PRICE: ${rawPrice}, IS_REAL: true`);
-    console.log("CRITICAL_DEBUG_PRICE:", rawPrice);
-    console.log("CRITICAL_DEBUG_MCAP:", mcap);
-
-    const rawH24 = best.priceChange?.h24;
-    const rawH6  = best.priceChange?.h6;
-    const priceChangeH24 = parseFloat(String(rawH24 ?? rawH6 ?? "0"));
-
-    return { fdv: mcap, priceUsd: parseFloat(rawPrice), priceChangeH24 };
+    return { fdv, priceUsd, priceChangeH24 };
   } catch (err) {
-    console.error("[DEX] Fetch error:", err);
+    console.error("[GECKO] Fetch error:", err);
     return null;
   }
 }
@@ -163,14 +149,16 @@ export function useTokenData(onMilestone?: (marketCap: number) => void) {
     // Always check for a manual override first (set via Admin panel)
     const override = await fetchManualOverride();
 
-    const dexResult = await fetchDexScreener();
+    // Fetch from GeckoTerminal (primary source)
+    const geckoResult = await fetchGeckoTerminal();
 
     // Decide which source to use:
-    // - Use override if it's enabled AND (DEX failed or DEX mcap is below the floor)
-    const useDexData = dexResult && (!override || dexResult.fdv >= DEX_FLOOR_MCAP);
+    // - Prefer GeckoTerminal if available and mcap is above the floor
+    // - Fall back to manual override if GeckoTerminal fails or is below floor
+    const useLiveData = geckoResult && (!override || geckoResult.fdv >= LIVE_FLOOR_MCAP);
 
-    if (!useDexData && !override) {
-      // Both DEX and override are unavailable
+    if (!useLiveData && !override) {
+      // Both live data and override are unavailable
       const donated = await fetchDonationsFallback();
       setData((prev) => ({
         ...prev,
@@ -191,13 +179,13 @@ export function useTokenData(onMilestone?: (marketCap: number) => void) {
     let priceChangeH24: number;
     let isManualOverride = false;
 
-    if (useDexData && dexResult) {
-      fdv = dexResult.fdv;
-      priceUsd = dexResult.priceUsd;
-      priceChangeH24 = dexResult.priceChangeH24;
-      console.log("[TOKEN] Using DEX data — mcap:", fdv);
+    if (useLiveData && geckoResult) {
+      fdv = geckoResult.fdv;
+      priceUsd = geckoResult.priceUsd;
+      priceChangeH24 = geckoResult.priceChangeH24;
+      console.log("[TOKEN] Using GeckoTerminal data — mcap:", fdv);
     } else {
-      // Use manual override
+      // Use manual override as backup
       priceUsd = override!.priceUsd;
       fdv = priceUsd * TOTAL_SUPPLY;
       priceChangeH24 = override!.priceChangeH24;

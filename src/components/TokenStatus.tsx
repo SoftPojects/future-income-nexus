@@ -160,9 +160,9 @@ const TokenStatus = ({ onMilestone, onMarketCapChange }: TokenStatusProps) => {
         )}
       </div>
 
-      {/* Prototype mode badge */}
-      <span className="text-[8px] text-yellow-400/70 tracking-wider border border-yellow-400/20 rounded px-1.5 py-0.5 self-start">
-        VIRTUALS PROTOTYPE MODE
+      {/* Data source badge */}
+      <span className="text-[8px] text-neon-cyan/70 tracking-wider border border-neon-cyan/20 rounded px-1.5 py-0.5 self-start">
+        POWERED BY COINGECKO / GECKOTERMINAL
       </span>
 
       {/* Donations fallback when DEX fails */}
