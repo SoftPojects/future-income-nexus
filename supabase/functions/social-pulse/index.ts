@@ -88,13 +88,39 @@ async function lookupUserByHandle(handle: string): Promise<string | null> {
 }
 
 async function followUser(sourceUserId: string, targetUserId: string): Promise<{ success: boolean; errorDetail?: string }> {
-  const resp = await makeOAuthRequest(
-    `https://api.x.com/2/users/${sourceUserId}/following`, "POST",
-    JSON.stringify({ target_user_id: targetUserId })
-  );
+  let resp: Response;
+  try {
+    resp = await makeOAuthRequest(
+      `https://api.x.com/2/users/${sourceUserId}/following`, "POST",
+      JSON.stringify({ target_user_id: targetUserId })
+    );
+  } catch (fetchErr) {
+    return { success: false, errorDetail: `Network error: ${fetchErr instanceof Error ? fetchErr.message : String(fetchErr)}` };
+  }
+
   if (resp.ok) return { success: true };
-  const errText = await resp.text().catch(() => "unknown");
-  return { success: false, errorDetail: `HTTP ${resp.status}: ${errText.slice(0, 300)}` };
+
+  // Try to extract the exact X API error message
+  const rawText = await resp.text().catch(() => "");
+  let detail = `HTTP ${resp.status}`;
+  try {
+    const parsed = JSON.parse(rawText);
+    // X API v2 error formats
+    if (parsed?.detail) detail = `HTTP ${resp.status}: ${parsed.detail}`;
+    else if (parsed?.errors?.[0]?.message) detail = `HTTP ${resp.status}: ${parsed.errors[0].message}`;
+    else if (parsed?.title) detail = `HTTP ${resp.status}: ${parsed.title}`;
+    else if (parsed?.error) detail = `HTTP ${resp.status}: ${parsed.error}`;
+    else detail = `HTTP ${resp.status}: ${rawText.slice(0, 400)}`;
+  } catch {
+    detail = `HTTP ${resp.status}: ${rawText.slice(0, 400)}`;
+  }
+
+  // Map common codes to human-readable causes
+  if (resp.status === 403) detail += " — likely missing 'follows.write' permission on your X app (check app settings → User auth → Read+Write+DMs)";
+  if (resp.status === 401) detail += " — OAuth credentials invalid or expired";
+  if (resp.status === 429) detail += " — X API rate limit hit, try again later";
+
+  return { success: false, errorDetail: detail };
 }
 
 async function getLatestTweetFromUser(userId: string): Promise<{ id: string; text: string } | null> {
@@ -390,18 +416,20 @@ serve(async (req) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         } else {
-          // Log EXACT error for full transparency
-          const errMsg = `[PULSE ERROR]: Follow @${target.x_handle} FAILED — ${followResult.errorDetail}`;
+          // Log EXACT X API error for full transparency — visible in SOCIAL ACTIVITY
+          const shortError = (followResult.errorDetail || "unknown error").slice(0, 500);
+          const errMsg = `[X API ERROR]: Follow @${target.x_handle} FAILED — ${shortError}`;
           console.error(errMsg);
           await sb.from("agent_logs").insert({ message: errMsg }).catch(() => {});
           await sb.from("social_logs").insert({
             target_handle: target.x_handle,
             action_type: "follow_error",
             source: isForceFollow ? "force_follow" : "auto_pulse",
-            reason: `API error: ${followResult.errorDetail?.slice(0, 200)}`,
+            reason: shortError.slice(0, 200),
           }).catch(() => {});
-          return new Response(JSON.stringify({ action: "error", reason: `follow failed: ${followResult.errorDetail}` }), {
+          return new Response(JSON.stringify({ action: "error", target: target.x_handle, reason: shortError }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200, // Return 200 so frontend can read the body and show the real error
           });
         }
       }
