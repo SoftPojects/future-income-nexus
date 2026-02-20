@@ -63,3 +63,9 @@ verify_jwt = false
 [functions.flash-snipe]
 verify_jwt = false
 
+[functions.trend-commenter]
+verify_jwt = false
+
+[functions.daily-poll]
+verify_jwt = false
+

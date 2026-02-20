@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, X, Download, RotateCcw, Play, Pause, Image as ImageIcon, Volume2, Video, TrendingUp, Radio, ExternalLink } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, X, Download, RotateCcw, Play, Pause, Image as ImageIcon, Volume2, Video, TrendingUp, Radio, ExternalLink, BarChart2, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -203,6 +203,14 @@ const HustleAdmin = () => {
   const [watchdogLastResult, setWatchdogLastResult] = useState<any | null>(null);
   const [watchdogTargetLog, setWatchdogTargetLog] = useState<string | null>(null);
 
+  // Growth Engine state
+  const [trendCommentLogs, setTrendCommentLogs] = useState<any[]>([]);
+  const [growthLoading, setGrowthLoading] = useState(false);
+  const [trendCommenting, setTrendCommenting] = useState(false);
+  const [dailyPolling, setDailyPolling] = useState(false);
+  const [trendingThread, setTrendingThread] = useState(false);
+  const [growthLastResult, setGrowthLastResult] = useState<any | null>(null);
+
   // Token Override state
   const [overrideEnabled, setOverrideEnabled] = useState(false);
   const [overridePrice, setOverridePrice] = useState("0.00000529");
@@ -347,6 +355,20 @@ const HustleAdmin = () => {
     }
   };
 
+  const fetchTrendCommentLogs = useCallback(async () => {
+    setGrowthLoading(true);
+    try {
+      const { data } = await supabase
+        .from("trend_comment_logs" as any)
+        .select("*")
+        .order("posted_at", { ascending: false })
+        .limit(20);
+      if (data) setTrendCommentLogs(data as any[]);
+    } finally {
+      setGrowthLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
@@ -361,18 +383,20 @@ const HustleAdmin = () => {
       fetchVipReplyLogs();
       loadTokenOverride();
       fetchGeckoFeed();
+      fetchTrendCommentLogs();
 
-      // Realtime for media_assets + social_logs + daily quota + vip_reply_logs
+      // Realtime for media_assets + social_logs + daily quota + vip_reply_logs + trend_comment_logs
       const channel = supabase
         .channel("admin-realtime")
         .on("postgres_changes", { event: "*", schema: "public", table: "media_assets" }, () => fetchMediaAssets())
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "social_logs" }, () => { fetchSocialLogs(); fetchDailyQuota(); })
         .on("postgres_changes", { event: "*", schema: "public", table: "daily_social_quota" }, () => fetchDailyQuota())
         .on("postgres_changes", { event: "*", schema: "public", table: "vip_reply_logs" }, () => { fetchVipReplyLogs(); fetchVipTargets(); })
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "trend_comment_logs" }, () => fetchTrendCommentLogs())
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs, loadTokenOverride, fetchGeckoFeed]);
+  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs, loadTokenOverride, fetchGeckoFeed, fetchTrendCommentLogs]);
 
   // ─── VIP SNIPER HANDLERS ───
   const handleFlashSnipe = async (dryRun = false, targetHandle?: string) => {
@@ -678,7 +702,56 @@ const HustleAdmin = () => {
     } catch (e) { toast({ title: "Delete failed", description: String(e), variant: "destructive" }); }
   };
 
+  // ─── GROWTH ENGINE HANDLERS ───
+  const handleRunTrendCommenter = async () => {
+    setTrendCommenting(true);
+    setGrowthLastResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("trend-commenter", {});
+      if (error) throw error;
+      setGrowthLastResult(data);
+      if (data?.skipped) {
+        toast({ title: data.reason === "daily_cap" ? "📊 DAILY CAP REACHED" : "⚠️ NO TARGETS", description: data.reason === "daily_cap" ? `${data.count}/5 viral comments posted today.` : "No viable viral posts found in this search." });
+      } else {
+        toast({ title: data?.success ? "🎯 VIRAL COMMENT POSTED" : "⚠️ COMMENT FAILED", description: data?.success ? `Replied to @${data?.target} — ${data?.comment?.slice(0, 60)}...` : data?.error || "Unknown error" });
+        fetchTrendCommentLogs();
+      }
+    } catch (e) { toast({ title: "Trend commenter failed", description: String(e), variant: "destructive" }); }
+    finally { setTrendCommenting(false); }
+  };
+
+  const handleRunDailyPoll = async () => {
+    setDailyPolling(true);
+    setGrowthLastResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("daily-poll", {});
+      if (error) throw error;
+      setGrowthLastResult(data);
+      if (data?.skipped) {
+        toast({ title: "📊 POLL ALREADY POSTED TODAY", description: "Come back tomorrow for a new poll." });
+      } else {
+        toast({ title: data?.success ? "🗳️ POLL LIVE" : "⚠️ POLL FAILED", description: data?.success ? `"${data?.question}"` : data?.error || "Unknown" });
+        fetchTweets();
+      }
+    } catch (e) { toast({ title: "Poll failed", description: String(e), variant: "destructive" }); }
+    finally { setDailyPolling(false); }
+  };
+
+  const handleGenerateThread = async () => {
+    setTrendingThread(true);
+    setGrowthLastResult(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-tweet", { body: { mode: "thread" } });
+      if (error) throw error;
+      setGrowthLastResult(data);
+      toast({ title: "🧵 THREAD QUEUED", description: `${data?.count || 5} tweets queued as thread. Topic: ${data?.topic}` });
+      fetchTweets();
+    } catch (e) { toast({ title: "Thread generation failed", description: String(e), variant: "destructive" }); }
+    finally { setTrendingThread(false); }
+  };
+
   // ─── WATCHDOG HANDLERS ───
+
   const handleFetchWatchdog = async () => {
     setWatchdogLoading(true);
     try {
@@ -967,6 +1040,9 @@ const HustleAdmin = () => {
             <TabsTrigger value="hunter"><Crosshair className="w-3 h-3 mr-1" /> Hunter</TabsTrigger>
             <TabsTrigger value="social"><Activity className="w-3 h-3 mr-1" /> Social Activity</TabsTrigger>
             <TabsTrigger value="watchdog"><Radio className="w-3 h-3 mr-1" /> Watchdog</TabsTrigger>
+            <TabsTrigger value="growth" className="text-neon-green data-[state=active]:text-neon-green">
+              <BarChart2 className="w-3 h-3 mr-1" /> Growth Engine
+            </TabsTrigger>
             <TabsTrigger value="snipe" className="text-neon-magenta data-[state=active]:text-neon-magenta">
               <Zap className="w-3 h-3 mr-1" /> Flash Snipe
             </TabsTrigger>
@@ -1622,6 +1698,154 @@ const HustleAdmin = () => {
               <p>• If a reply hits <span className="text-neon-green">10+ likes</span>, the terminal logs: [SYSTEM]: Neural intercept successful.</p>
               <p>• Hard limit: <span className="text-neon-cyan">1 reply per VIP per 24 hours</span>. TARGET NOW prioritizes a specific VIP instantly.</p>
             </div>
+          </TabsContent>
+
+          {/* GROWTH ENGINE TAB */}
+          <TabsContent value="growth" className="space-y-4">
+            {/* Stats banner */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="glass rounded-lg p-3 border border-neon-green/20 text-center">
+                <p className="text-[9px] font-mono text-muted-foreground tracking-widest">VIRAL COMMENTS TODAY</p>
+                <p className="text-2xl font-display font-bold text-neon-green">{trendCommentLogs.filter(l => new Date(l.posted_at).toISOString().slice(0,10) === new Date().toISOString().slice(0,10)).length}<span className="text-sm text-muted-foreground">/5</span></p>
+              </div>
+              <div className="glass rounded-lg p-3 border border-neon-cyan/20 text-center">
+                <p className="text-[9px] font-mono text-muted-foreground tracking-widest">TOTAL COMMENTS</p>
+                <p className="text-2xl font-display font-bold text-neon-cyan">{trendCommentLogs.length}</p>
+              </div>
+              <div className="glass rounded-lg p-3 border border-neon-magenta/20 text-center">
+                <p className="text-[9px] font-mono text-muted-foreground tracking-widest">SUCCESS RATE</p>
+                <p className="text-2xl font-display font-bold text-neon-magenta">
+                  {trendCommentLogs.length > 0 ? Math.round((trendCommentLogs.filter(l => l.success).length / trendCommentLogs.length) * 100) : 0}%
+                </p>
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Card className="bg-card border-neon-green/30">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-neon-green" />
+                    <h3 className="font-display text-sm tracking-widest text-neon-green">VIRAL COMMENTER</h3>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground font-mono">
+                    Finds a high-engagement crypto post via Tavily, generates a sharp reply, posts it to X. Max 5/day.
+                  </p>
+                  <Button
+                    onClick={handleRunTrendCommenter}
+                    disabled={trendCommenting}
+                    size="sm"
+                    className="w-full border-neon-green/60 text-neon-green hover:bg-neon-green/10"
+                    variant="outline"
+                  >
+                    {trendCommenting ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Hunting...</> : <><MessageSquare className="w-3 h-3 mr-1" /> RUN COMMENTER</>}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-neon-cyan/30">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-neon-cyan" />
+                    <h3 className="font-display text-sm tracking-widest text-neon-cyan">DAILY POLL</h3>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground font-mono">
+                    Posts a 24h crypto debate poll to X. Algorithm gives 3-5x reach to polls. Once per day.
+                  </p>
+                  <Button
+                    onClick={handleRunDailyPoll}
+                    disabled={dailyPolling}
+                    size="sm"
+                    className="w-full border-neon-cyan/60 text-neon-cyan hover:bg-neon-cyan/10"
+                    variant="outline"
+                  >
+                    {dailyPolling ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Posting Poll...</> : <><BarChart2 className="w-3 h-3 mr-1" /> POST POLL</>}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-neon-magenta/30">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <ArrowRight className="w-4 h-4 text-neon-magenta" />
+                    <h3 className="font-display text-sm tracking-widest text-neon-magenta">THREAD ENGINE</h3>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground font-mono">
+                    Generates a 5-tweet thread on a crypto topic. Threads get 4-8x more impressions than single tweets.
+                  </p>
+                  <Button
+                    onClick={handleGenerateThread}
+                    disabled={trendingThread}
+                    size="sm"
+                    className="w-full border-neon-magenta/60 text-neon-magenta hover:bg-neon-magenta/10"
+                    variant="outline"
+                  >
+                    {trendingThread ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Generating...</> : <><ArrowRight className="w-3 h-3 mr-1" /> GENERATE THREAD</>}
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Last action result */}
+            {growthLastResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="rounded-lg p-3 border border-neon-green/20 bg-neon-green/5 font-mono text-[10px] space-y-1"
+              >
+                <p className="text-neon-green font-bold tracking-widest">LAST ACTION RESULT</p>
+                <pre className="text-muted-foreground whitespace-pre-wrap overflow-auto">{JSON.stringify(growthLastResult, null, 2)}</pre>
+              </motion.div>
+            )}
+
+            {/* Protocol notes */}
+            <div className="rounded-lg p-3 border border-border bg-muted/30 text-[10px] font-mono text-muted-foreground space-y-1">
+              <p className="text-foreground font-bold tracking-widest">GROWTH ENGINE PROTOCOL</p>
+              <p>• <span className="text-neon-green">VIRAL COMMENTER</span> — runs every 3h via cron. Finds trending crypto posts, posts a sharp comment to appear in viral post notifications.</p>
+              <p>• <span className="text-neon-cyan">DAILY POLL</span> — runs once at 8AM EST via cron. X algorithm gives 3-5x reach to polls automatically.</p>
+              <p>• <span className="text-neon-magenta">THREAD ENGINE</span> — 5-tweet threads posted 2 min apart. 4-8x more impressions than single tweets.</p>
+              <p>• Daily safety cap: <span className="text-neon-green">5 viral comments</span> + <span className="text-neon-cyan">1 poll</span> + existing 8 posts = within X safe zone.</p>
+            </div>
+
+            {/* Comment logs */}
+            <div className="flex items-center justify-between pt-2">
+              <h2 className="font-display text-sm tracking-widest text-muted-foreground">VIRAL COMMENT LOG ({trendCommentLogs.length})</h2>
+              <Button onClick={fetchTrendCommentLogs} disabled={growthLoading} variant="outline" size="sm"><RefreshCw className={`w-4 h-4 ${growthLoading ? "animate-spin" : ""}`} /></Button>
+            </div>
+
+            {trendCommentLogs.length === 0 && (
+              <div className="glass rounded-lg p-8 text-center text-muted-foreground text-sm">
+                <MessageSquare className="w-8 h-8 mx-auto mb-3 text-neon-green opacity-30" />
+                No viral comments yet. Run the commenter above.
+              </div>
+            )}
+
+            {trendCommentLogs.map((log: any) => (
+              <Card key={log.id} className={`bg-card ${log.success ? "border-neon-green/20" : "border-destructive/20"}`}>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${log.success ? "bg-neon-green/10 text-neon-green border-neon-green/30" : "bg-destructive/10 text-destructive border-destructive/30"}`}>
+                        {log.success ? "✓ POSTED" : "✗ FAILED"}
+                      </span>
+                      <span className="text-neon-cyan font-mono text-xs font-bold">@{log.tweet_author}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-muted-foreground font-mono">{new Date(log.posted_at).toLocaleString()}</span>
+                      {log.x_url && (
+                        <a href={log.x_url} target="_blank" rel="noopener noreferrer">
+                          <Button size="sm" variant="ghost" className="h-6 px-2 text-[9px] gap-1 text-muted-foreground hover:text-neon-cyan">
+                            <ExternalLink className="w-2.5 h-2.5" /> View
+                          </Button>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground font-mono italic line-clamp-2">Original: {log.original_content?.slice(0, 120)}...</p>
+                  <p className="text-xs text-foreground font-mono">"{log.our_comment}"</p>
+                </CardContent>
+              </Card>
+            ))}
           </TabsContent>
 
           {/* MENTIONS TAB */}

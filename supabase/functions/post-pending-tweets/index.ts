@@ -275,15 +275,44 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const sb = createClient(supabaseUrl, serviceKey);
 
-    const now = new Date().toISOString();
+  const now = new Date().toISOString();
 
-    // Fetch ALL overdue pending tweets (scheduled_at <= now)
-    const { data: overdueTweets, error: fetchErr } = await sb
+    // ── THREAD GROUP: Check if any thread group is in-flight ──────────────────
+    // If a thread is partially posted, always continue it before starting new content
+    const { data: inFlightThread } = await sb
       .from("tweet_queue")
-      .select("*")
+      .select("thread_group_id")
       .eq("status", "pending")
-      .lte("scheduled_at", now)
-      .order("created_at", { ascending: true });
+      .not("thread_group_id", "is", null)
+      .limit(1)
+      .maybeSingle() as { data: any };
+
+    let overdueTweets: any[];
+    let fetchErr: any;
+
+    if (inFlightThread?.thread_group_id) {
+      // Post next tweet in the active thread group in order
+      const { data, error } = await sb
+        .from("tweet_queue")
+        .select("*")
+        .eq("status", "pending")
+        .eq("thread_group_id", inFlightThread.thread_group_id)
+        .order("thread_position", { ascending: true })
+        .limit(1);
+      overdueTweets = data ?? [];
+      fetchErr = error;
+      console.log(`[THREAD] Continuing thread group ${inFlightThread.thread_group_id}`);
+    } else {
+      // Normal: fetch overdue pending tweets
+      const { data, error } = await sb
+        .from("tweet_queue")
+        .select("*")
+        .eq("status", "pending")
+        .lte("scheduled_at", now)
+        .order("created_at", { ascending: true });
+      overdueTweets = data ?? [];
+      fetchErr = error;
+    }
 
     if (fetchErr) throw fetchErr;
 
@@ -368,10 +397,43 @@ serve(async (req) => {
     console.log(`[POST PENDING] Tweet: ${tweetToPost.id} | image: ${!!imageUrl} | video: ${!!videoUrl}`);
 
     // Check if this is a reply to another tweet
-    const replyToId = (tweetToPost as any).reply_to_tweet_id || undefined;
+    // For threads: if thread_position > 0, find the previous thread tweet's X id
+    let replyToId = (tweetToPost as any).reply_to_tweet_id || undefined;
+
+    const threadGroupId = (tweetToPost as any).thread_group_id;
+    const threadPosition = (tweetToPost as any).thread_position ?? 0;
+
+    if (threadGroupId && threadPosition > 0 && !replyToId) {
+      // Find the immediately previous tweet in this thread that was posted
+      const { data: prevTweet } = await sb
+        .from("tweet_queue")
+        .select("reply_to_tweet_id, content")
+        .eq("thread_group_id", threadGroupId)
+        .eq("thread_position", threadPosition - 1)
+        .eq("status", "posted")
+        .maybeSingle() as { data: any };
+
+      // We stored the X tweet ID in a custom field — check agent_logs for previous thread tweet ID
+      if (prevTweet) {
+        const { data: logEntry } = await sb
+          .from("agent_logs")
+          .select("message")
+          .like("message", `%[THREAD:${threadGroupId}:${threadPosition - 1}]%`)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (logEntry?.message) {
+          const idMatch = logEntry.message.match(/\[THREAD:[^:]+:\d+\]:(\d+)/);
+          if (idMatch) replyToId = idMatch[1];
+        }
+      }
+      if (replyToId) console.log(`[THREAD] Replying to previous tweet in thread: ${replyToId}`);
+    }
 
     // Post the tweet with media
     let result = await postToTwitter(finalContent, { imageUrl, videoUrl, replyToId });
+
 
     // If 403 and content has @ mentions, try soft-tag formats before stripping
     if (!result.success && result.error?.includes("403") && finalContent.includes("@")) {
@@ -402,6 +464,14 @@ serve(async (req) => {
       await sb.from("agent_logs").insert({
         message: `[SYSTEM]: Posted ${tweetToPost.type || "automated"} tweet to X. ID: ${result.tweetId || "unknown"}`,
       });
+
+      // THREAD: log tweet ID for next tweet in sequence to pick up
+      if (threadGroupId && result.tweetId) {
+        await sb.from("agent_logs").insert({
+          message: `[THREAD:${threadGroupId}:${threadPosition}]:${result.tweetId}`,
+        });
+        console.log(`[THREAD] Logged thread tweet ID: ${result.tweetId} position=${threadPosition}`);
+      }
 
       // AUTO-PLUG: If this was a hunter roast and we got a tweetId, schedule a plug reply 2 min later
       if (tweetToPost.type === "hunter" && result.tweetId && !replyToId) {
