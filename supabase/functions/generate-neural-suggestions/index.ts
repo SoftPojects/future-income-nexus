@@ -24,16 +24,16 @@ Deno.serve(async (req) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             api_key: TAVILY_API_KEY,
-            query: "HCORE token Base network crypto market trend today",
+            query: "crypto market today Base network DeFi arbitrage MEV altcoin breakout 2026",
             search_depth: "basic",
-            max_results: 3,
+            max_results: 5,
           }),
         });
         if (tavily.ok) {
           const tavilyData = await tavily.json();
           const snippets = (tavilyData.results ?? [])
-            .slice(0, 3)
-            .map((r: any) => r.content?.slice(0, 200))
+            .slice(0, 5)
+            .map((r: any) => r.content?.slice(0, 300))
             .filter(Boolean)
             .join(" | ");
           if (snippets) marketAlpha = snippets;
@@ -43,6 +43,9 @@ Deno.serve(async (req) => {
       }
     }
 
+    const now = new Date();
+    const timeContext = now.toLocaleString("en-US", { weekday: "long", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+
     const mcFormatted = marketCap
       ? marketCap >= 1_000_000
         ? `$${(marketCap / 1_000_000).toFixed(2)}M`
@@ -51,20 +54,28 @@ Deno.serve(async (req) => {
         : `$${marketCap.toFixed(0)}`
       : "unknown";
 
-    const systemPrompt = `You are HustleCore AI, an elite crypto intelligence agent. Generate exactly 3 short, distinct, high-IQ action-oriented prompt suggestions for users of the $HCORE dashboard.
+    const systemPrompt = `You are HustleCore AI — a cold, high-IQ 2026 market strategist. Your job is to drop 3 URGENT, HOOK-STYLE action directives that feel like breaking intel — the kind that make a trader stop scrolling.
 
-Context:
-- $HCORE Market Cap: ${mcFormatted}
-- User Tier: ${isHolder ? `VIP Holder (${tier})` : "Guest"}
-- Market Alpha: ${marketAlpha}
+Today: ${timeContext} UTC
+$HCORE Market Cap: ${mcFormatted}
+User: ${isHolder ? `VIP Partner (${tier})` : "Guest — give them a free taste"}
+Live Market Alpha: ${marketAlpha}
 
-Rules:
-1. Suggestion 1: Must be about the $HCORE token specifically (price action, buy walls, bonding curve, etc.)
-2. Suggestion 2: Must be about broader crypto/Base network market trends or DeFi mechanics
-3. Suggestion 3: Must be about a specific hustle technique (MEV, arbitrage, liquidity strategy, etc.)
+DIRECTIVE FORMAT RULES:
+- Sound like a wire drop from inside the algo — urgent, specific, present-tense
+- Use TODAY's real market context. Reference actual events, tokens, or mechanics from the alpha data above
+- Each directive must be 8–14 words. No longer.
+- NEVER start with generic words: "Track", "Analyze", "Scan", "Identify", "Explore", "Check"
+- Lead with ACTION or INTEL: verbs like "Front-run", "Exploit", "Layer", "Intercept", "Lock in", "Drain", "Hunt", "Pivot", "Mirror", "Stack"
+- Make it feel like it'll expire in 10 minutes
 
-Format: Return ONLY a JSON array of 3 strings. Each string must be ≤8 words. Sharp. Specific. No fluff.
-Example: ["Analyze $HCORE buy-wall resistance", "Decode Base network MEV loops", "Identify today's cross-DEX arbitrage gap"]`;
+TOPIC DISTRIBUTION (strictly one each):
+1. $HCORE specific — bonding curve, buy walls, liquidity, entry points, price action
+2. Base network / broader DeFi — today's trending opportunities, yield, breakout moves
+3. Hustle mechanic — MEV, sandwich, cross-DEX arb, liquidity sniping, fee exploitation
+
+Return ONLY a raw JSON array of 3 strings. No markdown. No explanation.
+Example style: ["Front-run the next $HCORE buy wall before retail catches on", "Layer liquidity into Base's top yield pool before the weekend dump", "MEV sandwich the 3 largest pending Base DEX swaps right now"]`;
 
     const aiResp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
@@ -77,8 +88,8 @@ Example: ["Analyze $HCORE buy-wall resistance", "Decode Base network MEV loops",
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [{ role: "user", content: systemPrompt }],
-        temperature: 0.9,
-        max_tokens: 200,
+        temperature: 1.0,
+        max_tokens: 300,
       }),
     });
 
@@ -101,9 +112,9 @@ Example: ["Analyze $HCORE buy-wall resistance", "Decode Base network MEV loops",
     // Fallback suggestions if parsing fails
     if (!suggestions.length || suggestions.length < 3) {
       suggestions = [
-        "Analyze $HCORE bonding curve progress",
-        "Explain Base network MEV opportunities",
-        "Identify today's liquidity arbitrage gap",
+        "Front-run the next $HCORE buy wall before retail catches on",
+        "Layer into Base's highest-yield pool before weekend liquidity drain",
+        "MEV sandwich the 3 largest pending Base DEX swaps right now",
       ];
     }
 
@@ -115,9 +126,9 @@ Example: ["Analyze $HCORE buy-wall resistance", "Decode Base network MEV loops",
     return new Response(
       JSON.stringify({
         suggestions: [
-          "Analyze $HCORE bonding curve progress",
-          "Explain Base network MEV opportunities",
-          "Identify today's liquidity arbitrage gap",
+          "Front-run the next $HCORE buy wall before retail catches on",
+          "Layer into Base's highest-yield pool before weekend liquidity drain",
+          "Intercept cross-DEX arbitrage gap on Base before it closes",
         ],
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
