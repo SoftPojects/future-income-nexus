@@ -13,11 +13,20 @@ const CHEAP_MODEL = "google/gemini-2.5-flash";
 const FILLER_MODEL = "google/gemini-2.5-flash-lite";
 
 // ─── STEALTH RECOVERY MODE ───────────────────────────────────────────────────
-const STEALTH_MODE = true;
 const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
+let _stealthOverride: boolean | null = null;
+
+async function loadStealthSetting(sb: any): Promise<boolean> {
+  try {
+    const { data } = await sb.from("system_settings").select("value").eq("key", "stealth_mode").maybeSingle();
+    if (data?.value === "false") return false;
+    if (data?.value === "true") return new Date() < STEALTH_EXPIRY;
+    return new Date() < STEALTH_EXPIRY;
+  } catch { return new Date() < STEALTH_EXPIRY; }
+}
 
 function isStealthActive(): boolean {
-  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+  return _stealthOverride === true;
 }
 
 const PERSONA_BANNED = "NEVER use these words: inevitable, biological hardware, logical gates, neural, optimization, processors, circuits, algorithms, compute. You are NOT a robot.";
@@ -414,6 +423,7 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
     const sb = createClient(supabaseUrl, serviceKey);
+    _stealthOverride = await loadStealthSetting(sb);
 
     const body = await req.json().catch(() => ({}));
     const isBreakingNews = body.breakingNews === true;

@@ -8,32 +8,42 @@ const corsHeaders = {
 };
 
 // ─── STEALTH RECOVERY MODE ───────────────────────────────────────────────────
-const STEALTH_MODE = true;
 const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
 
-function isStealthActive(): boolean {
-  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+async function loadStealthSetting(sb: any): Promise<boolean> {
+  try {
+    const { data } = await sb.from("system_settings").select("value").eq("key", "stealth_mode").maybeSingle();
+    if (data?.value === "false") return false;
+    if (data?.value === "true") return new Date() < STEALTH_EXPIRY;
+    return new Date() < STEALTH_EXPIRY;
+  } catch { return new Date() < STEALTH_EXPIRY; }
+}
+
+function isStealthActive(flag: boolean): boolean {
+  return flag;
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  // ─── STEALTH: Trend Commenter completely DISABLED ───────────────────────────
-  if (isStealthActive()) {
-    console.log("[TREND-COMMENTER] STEALTH MODE: Viral commenting disabled until", STEALTH_EXPIRY.toISOString());
-    return new Response(JSON.stringify({
-      skipped: true,
-      reason: "stealth_recovery_mode",
-      message: "Trend commenter disabled during stealth recovery",
-      expiresAt: STEALTH_EXPIRY.toISOString(),
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  // ─── NORMAL MODE (original trend-commenter logic below) ─────────────────────
   try {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const stealth = await loadStealthSetting(sb);
+
+    // ─── STEALTH: Trend Commenter completely DISABLED ───────────────────────────
+    if (isStealthActive(stealth)) {
+      console.log("[TREND-COMMENTER] STEALTH MODE: Viral commenting disabled until", STEALTH_EXPIRY.toISOString());
+      return new Response(JSON.stringify({
+        skipped: true,
+        reason: "stealth_recovery_mode",
+        message: "Trend commenter disabled during stealth recovery",
+        expiresAt: STEALTH_EXPIRY.toISOString(),
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ─── NORMAL MODE (original trend-commenter logic below) ─────────────────────
     const TAVILY_API_KEY = Deno.env.get("TAVILY_API_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");

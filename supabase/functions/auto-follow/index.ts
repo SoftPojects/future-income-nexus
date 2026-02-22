@@ -8,19 +8,30 @@ const corsHeaders = {
 };
 
 // ─── STEALTH RECOVERY MODE ───────────────────────────────────────────────────
-const STEALTH_MODE = true;
 const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
 
-function isStealthActive(): boolean {
-  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+async function loadStealthSetting(sb: any): Promise<boolean> {
+  try {
+    const { data } = await sb.from("system_settings").select("value").eq("key", "stealth_mode").maybeSingle();
+    if (data?.value === "false") return false;
+    if (data?.value === "true") return new Date() < STEALTH_EXPIRY;
+    return new Date() < STEALTH_EXPIRY;
+  } catch { return new Date() < STEALTH_EXPIRY; }
+}
+
+function isStealthActive(flag: boolean): boolean {
+  return flag;
 }
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const stealth = await loadStealthSetting(sb);
+
     // ─── STEALTH: Auto-Follow completely DISABLED ─────────────────────────────
-    if (isStealthActive()) {
+    if (isStealthActive(stealth)) {
       console.log("[AUTO-FOLLOW] STEALTH MODE: Auto-follow disabled until", STEALTH_EXPIRY.toISOString());
       return new Response(JSON.stringify({ 
         followed: 0, 
@@ -33,7 +44,6 @@ serve(async (req) => {
     }
 
     // ─── NORMAL MODE (original auto-follow logic) ─────────────────────────────
-    const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     let discoveryOnly = false;
     try {

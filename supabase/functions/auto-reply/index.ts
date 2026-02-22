@@ -12,11 +12,20 @@ const MODEL_PREMIUM = "anthropic/claude-3.5-sonnet";
 const MODEL_FREE = "google/gemini-2.5-flash";
 
 // ─── STEALTH RECOVERY MODE ───────────────────────────────────────────────────
-const STEALTH_MODE = true;
 const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
+let _stealthOverride: boolean | null = null;
+
+async function loadStealthSetting(sb: any): Promise<boolean> {
+  try {
+    const { data } = await sb.from("system_settings").select("value").eq("key", "stealth_mode").maybeSingle();
+    if (data?.value === "false") return false;
+    if (data?.value === "true") return new Date() < STEALTH_EXPIRY;
+    return new Date() < STEALTH_EXPIRY;
+  } catch { return new Date() < STEALTH_EXPIRY; }
+}
 
 function isStealthActive(): boolean {
-  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+  return _stealthOverride === true;
 }
 
 // ─── PERSONA ──────────────────────────────────────────────────────────────────
@@ -192,6 +201,7 @@ serve(async (req) => {
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    _stealthOverride = await loadStealthSetting(sb);
     const stealth = isStealthActive();
 
     console.log(`[AUTO-REPLY] stealth=${stealth}`);
