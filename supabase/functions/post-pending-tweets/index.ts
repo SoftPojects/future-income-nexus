@@ -258,6 +258,13 @@ async function postToTwitter(
 }
 
 // Generate a plug reply using Lovable AI
+// ─── STEALTH RECOVERY MODE ───────────────────────────────────────────────────
+const STEALTH_MODE = true;
+const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
+function isStealthActive(): boolean {
+  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+}
+
 const PLUG_TEMPLATES = [
   "the grid is active. study the architecture: hustlecoreai.xyz",
   "if you made it this far you deserve the alpha. hustlecoreai.xyz",
@@ -473,8 +480,8 @@ serve(async (req) => {
         console.log(`[THREAD] Logged thread tweet ID: ${result.tweetId} position=${threadPosition}`);
       }
 
-      // AUTO-PLUG: If this was a hunter roast and we got a tweetId, schedule a plug reply 2 min later
-      if (tweetToPost.type === "hunter" && result.tweetId && !replyToId) {
+      // AUTO-PLUG: Disabled in stealth mode (no links/promotion)
+      if (!isStealthActive() && tweetToPost.type === "hunter" && result.tweetId && !replyToId) {
         console.log(`[AUTO-PLUG] Scheduling plug reply to hunter tweet ${result.tweetId} in 2 minutes...`);
         const plugContent = PLUG_TEMPLATES[Math.floor(Math.random() * PLUG_TEMPLATES.length)];
         const plugSchedule = new Date(Date.now() + 2 * 60 * 1000).toISOString();

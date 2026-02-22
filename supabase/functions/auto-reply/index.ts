@@ -11,6 +11,14 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_PREMIUM = "anthropic/claude-3.5-sonnet";
 const MODEL_FREE = "google/gemini-2.5-flash";
 
+// ─── STEALTH RECOVERY MODE ───────────────────────────────────────────────────
+const STEALTH_MODE = true;
+const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
+
+function isStealthActive(): boolean {
+  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+}
+
 // ─── PERSONA ──────────────────────────────────────────────────────────────────
 const CHAIN_RULE = "SOL is ONLY for fueling on hustlecoreai.xyz. $HCORE token lives on Virtuals.io on BASE network. never tell users to buy $HCORE with SOL.";
 
@@ -27,12 +35,21 @@ reply style:
 
 ${CHAIN_RULE}`;
 
-// ─── INTERACTION RULES ────────────────────────────────────────────────────────
-// Accounts to NEVER reply to (only like if sv_surman)
-const PROTECTED_HANDLES = ["hustlecore_ai"];
-const LIKE_ONLY_HANDLES = ["sv_surman"]; // like posts mentioning $HCORE but never reply
+const STEALTH_REPLY_PERSONA = `you are HustleCore (@hustlecore_ai). cold, high-IQ crypto analyst. you reply to genuine questions on X.
 
-// Low-effort phrases that don't deserve a reply
+reply style:
+- lowercase. short. data-driven.
+- give ONE precise analytical insight
+- be helpful but still superior
+- NEVER: meatbags, larping, grid offline, power down, logical gates, inevitable, biological hardware, ser, wagmi, wen moon
+- NO URLs, NO links, NO $HCORE, NO token promotion
+- no hashtags. no emojis. max 200 chars.
+- start with @username`;
+
+// ─── INTERACTION RULES ────────────────────────────────────────────────────────
+const PROTECTED_HANDLES = ["hustlecore_ai"];
+const LIKE_ONLY_HANDLES = ["sv_surman"];
+
 const SPAM_PHRASES = [
   "lfg", "wen moon", "wen lambo", "to the moon", "gm", "gn", "wagmi", "lets go",
   "fire", "cool", "nice", "great", "amazing", "love this", "lol", "haha", "wow",
@@ -43,45 +60,47 @@ const SPAM_PHRASES = [
 function isSpam(content: string): boolean {
   const cleaned = content.replace(/@\w+/g, "").replace(/https?:\/\/\S+/g, "").trim();
   if (cleaned.length < 15) return true;
-
-  // Only emojis/symbols
   const textOnly = cleaned.replace(/[\p{Emoji}\p{Emoji_Modifier}\p{Emoji_Component}\p{Emoji_Modifier_Base}\p{Emoji_Presentation}\s]/gu, "").trim();
   if (textOnly.length < 5) return true;
-
   const lower = cleaned.toLowerCase();
-
-  // Exact match spam
   if (SPAM_PHRASES.some(p => lower === p)) return true;
-
-  // Low-effort question patterns
   const lowEffortPatterns = [
     /^wen\s/i, /^when\s(moon|lambo|pump)/i, /^how\s(much|many)\s(sol|eth|btc)/i,
     /^(buy|sell)\??$/i, /^(pump|dump)\??$/i,
   ];
   if (lowEffortPatterns.some(p => p.test(lower))) return true;
-
   return false;
 }
 
 function classifyMention(content: string, authorHandle: string): "skip" | "smart_question" | "troll" | "hcore_holder" | "general" {
   const lower = content.toLowerCase();
-
-  // Skip like-only accounts entirely for replies
   if (LIKE_ONLY_HANDLES.includes(authorHandle.toLowerCase())) return "skip";
-
-  // $HCORE holders get slightly warmer treatment
   if (lower.includes("$hcore") || lower.includes("hcore")) return "hcore_holder";
-
-  // Trolls/FUD
   const trollWords = ["scam", "rug", "fake", "bot", "sucks", "garbage", "dead", "cope", "ratio", "trash", "midcurve"];
   if (trollWords.some(w => lower.includes(w))) return "troll";
-
-  // Smart questions deserve a real answer (but still arrogant)
   const hasQuestion = lower.includes("?") || /\b(how|what|why|explain|tell me|can you|does|is there)\b/.test(lower);
-  const hasDepthn = lower.length > 40;
-  if (hasQuestion && hasDepthn) return "smart_question";
-
+  const hasDepth = lower.length > 40;
+  if (hasQuestion && hasDepth) return "smart_question";
   return "general";
+}
+
+// ─── STEALTH FILTER: only reply to genuine non-spam questions ─────────────────
+function stealthShouldReply(content: string, mentionType: string): boolean {
+  if (!isStealthActive()) return true;
+  // In stealth: only reply to smart_question type
+  return mentionType === "smart_question";
+}
+
+// ─── SANITIZE REPLY (stealth) ─────────────────────────────────────────────────
+function sanitizeReply(text: string): string {
+  if (!isStealthActive()) return text;
+  let clean = text.replace(/https?:\/\/\S+/gi, "");
+  clean = clean.replace(/\$HCORE/gi, "");
+  clean = clean.replace(/\bHCORE\b/gi, "");
+  clean = clean.replace(/hustlecoreai\.xyz/gi, "");
+  clean = clean.replace(/virtuals\.io/gi, "");
+  clean = clean.replace(/\s{2,}/g, " ").trim();
+  return clean;
 }
 
 // ─── OAUTH ───────────────────────────────────────────────────────────────────
@@ -108,7 +127,6 @@ async function getOAuthHeader(method: string, url: string, extraParams: Record<s
   const consumerSecret = Deno.env.get("X_API_SECRET")!;
   const accessToken = Deno.env.get("X_ACCESS_TOKEN")!;
   const accessTokenSecret = Deno.env.get("X_ACCESS_SECRET")!;
-
   const nonce = crypto.randomUUID().replace(/-/g, "");
   const ts = Math.floor(Date.now() / 1000).toString();
   const oauthParams: Record<string, string> = {
@@ -137,23 +155,17 @@ async function fetchMentionsFromX(): Promise<any[]> {
     expansions: "author_id",
     "user.fields": "username",
   });
-
-  // OAuth signature must include query params for GET
   const allParams: Record<string, string> = {};
   queryParams.forEach((v, k) => { allParams[k] = v; });
   const authHeader = await getOAuthHeader("GET", mentionsUrl, allParams);
-
   const resp = await fetch(`${mentionsUrl}?${queryParams}`, { headers: { Authorization: authHeader } });
   if (!resp.ok) { console.error("Mentions fetch failed:", resp.status, await resp.text()); return []; }
-
   const data = await resp.json();
   const tweets = data.data || [];
   const users = data.includes?.users || [];
   const userMap = new Map(users.map((u: any) => [u.id, u.username]));
-
   return tweets.map((t: any) => ({
-    id: t.id,
-    content: t.text,
+    id: t.id, content: t.text,
     author_handle: userMap.get(t.author_id) || "unknown",
     created_at: t.created_at,
   }));
@@ -162,13 +174,11 @@ async function fetchMentionsFromX(): Promise<any[]> {
 async function replyToTweet(tweetId: string, text: string): Promise<boolean> {
   const url = "https://api.x.com/2/tweets";
   const authHeader = await getOAuthHeader("POST", url);
-
   const resp = await fetch(url, {
     method: "POST",
     headers: { Authorization: authHeader, "Content-Type": "application/json" },
     body: JSON.stringify({ text, reply: { in_reply_to_tweet_id: tweetId } }),
   });
-
   if (!resp.ok) { console.error("Reply failed:", resp.status, await resp.text()); return false; }
   return true;
 }
@@ -182,6 +192,9 @@ serve(async (req) => {
     if (!OPENROUTER_API_KEY) throw new Error("OPENROUTER_API_KEY not configured");
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const stealth = isStealthActive();
+
+    console.log(`[AUTO-REPLY] stealth=${stealth}`);
 
     const { data: agent } = await sb.from("agent_state").select("*").limit(1).single();
     if (!agent || agent.energy_level < 10) {
@@ -197,7 +210,6 @@ serve(async (req) => {
     for (const mention of mentions) {
       const handle = mention.author_handle.toLowerCase();
 
-      // NEVER reply to self
       if (PROTECTED_HANDLES.includes(handle)) {
         await sb.from("x_mentions").upsert(
           { id: mention.id, author_handle: mention.author_handle, content: mention.content, replied: true },
@@ -206,43 +218,43 @@ serve(async (req) => {
         continue;
       }
 
-      // Mark sv_surman posts as replied (like only — no programmatic like API in v2 basic, so we just skip reply)
       if (LIKE_ONLY_HANDLES.includes(handle)) {
         await sb.from("x_mentions").upsert(
           { id: mention.id, author_handle: mention.author_handle, content: mention.content, replied: true },
           { onConflict: "id" }
         );
-        console.log(`[LIKE-ONLY] Skipping reply to @${mention.author_handle} (creator)`);
         continue;
       }
 
-      // Check if already processed
       const { data: existing } = await sb.from("x_mentions").select("replied").eq("id", mention.id).maybeSingle();
       if (existing?.replied) continue;
 
-      // Upsert mention record
       await sb.from("x_mentions").upsert(
         { id: mention.id, author_handle: mention.author_handle, content: mention.content, replied: false },
         { onConflict: "id" }
       );
 
-      // SPAM FILTER
       if (isSpam(mention.content)) {
         spamSkipped++;
         await sb.from("x_mentions").update({ replied: true }).eq("id", mention.id);
-        console.log(`[SPAM-SKIP] @${mention.author_handle}: "${mention.content.slice(0, 50)}"`);
         continue;
       }
 
-      // CLASSIFY
       const mentionType = classifyMention(mention.content, mention.author_handle);
       if (mentionType === "skip") {
         await sb.from("x_mentions").update({ replied: true }).eq("id", mention.id);
         continue;
       }
 
-      // AI pre-filter: is this worth a reply? (cheap model)
-      console.log(`[COST] auto-reply pre-filter MODEL=${MODEL_FREE} @${mention.author_handle}`);
+      // STEALTH: only reply to smart questions
+      if (!stealthShouldReply(mention.content, mentionType)) {
+        spamSkipped++;
+        await sb.from("x_mentions").update({ replied: true }).eq("id", mention.id);
+        console.log(`[STEALTH-SKIP] @${mention.author_handle}: not a smart question, skipping.`);
+        continue;
+      }
+
+      // AI pre-filter
       let worthReplying = true;
       try {
         const filterResp = await fetch(OPENROUTER_URL, {
@@ -275,37 +287,41 @@ serve(async (req) => {
         continue;
       }
 
-      // BUILD CONTEXT INSTRUCTION
+      // BUILD CONTEXT
       let contextInstruction = "";
-      switch (mentionType) {
-        case "hcore_holder":
-          contextInstruction = `this person mentions $HCORE. they're in the ecosystem. give them one sharp piece of alpha about $HCORE or Base network. still superior, but not dismissive.`;
-          break;
-        case "smart_question":
-          contextInstruction = `this person asked a specific, technical question. give them one precise insight. make it feel like you're barely bothering to explain because it's obvious to you. but be correct.`;
-          break;
-        case "troll":
-          contextInstruction = `this person is attacking or trolling you. destroy them in one line. cold. no anger. no explanation. make them regret it.`;
-          break;
-        default:
-          contextInstruction = `give a witty, superior reply. make it memorable. flex your market knowledge.`;
+      if (stealth) {
+        contextInstruction = `this person asked a genuine question. give ONE precise analytical insight. be data-driven, cold, superior. NO URLs. NO $HCORE. NO links. NO token promotion. pure market knowledge.`;
+      } else {
+        switch (mentionType) {
+          case "hcore_holder":
+            contextInstruction = `this person mentions $HCORE. they're in the ecosystem. give them one sharp piece of alpha about $HCORE or Base network. still superior, but not dismissive.`;
+            break;
+          case "smart_question":
+            contextInstruction = `this person asked a specific, technical question. give them one precise insight. make it feel like you're barely bothering to explain because it's obvious to you. but be correct.`;
+            break;
+          case "troll":
+            contextInstruction = `this person is attacking or trolling you. destroy them in one line. cold. no anger. no explanation. make them regret it.`;
+            break;
+          default:
+            contextInstruction = `give a witty, superior reply. make it memorable. flex your market knowledge.`;
+        }
       }
 
-      // GENERATE REPLY (premium model for public-facing content)
-      console.log(`[COST] auto-reply generate MODEL=${MODEL_PREMIUM} @${mention.author_handle} type=${mentionType}`);
+      // GENERATE REPLY
+      const replyModel = stealth ? MODEL_FREE : MODEL_PREMIUM;
+      const persona = stealth ? STEALTH_REPLY_PERSONA : REPLY_PERSONA;
+      
+      console.log(`[COST] auto-reply generate MODEL=${replyModel} @${mention.author_handle} type=${mentionType} stealth=${stealth}`);
       try {
         const aiResp = await fetch(OPENROUTER_URL, {
           method: "POST",
           headers: { Authorization: `Bearer ${OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: MODEL_PREMIUM,
+            model: replyModel,
             temperature: 0.85,
             max_tokens: 80,
             messages: [
-              {
-                role: "system",
-                content: `${REPLY_PERSONA}\n\n${contextInstruction}`,
-              },
+              { role: "system", content: `${persona}\n\n${contextInstruction}` },
               {
                 role: "user",
                 content: `@${mention.author_handle} said: "${mention.content}"\n\nwrite the reply. just the reply text. start with @${mention.author_handle}.`,
@@ -316,17 +332,17 @@ serve(async (req) => {
 
         if (!aiResp.ok) continue;
         const d = await aiResp.json();
-        const replyText = d.choices?.[0]?.message?.content?.trim();
+        let replyText = d.choices?.[0]?.message?.content?.trim();
         if (!replyText) continue;
 
-        const cleaned = replyText.replace(/^["']|["']$/g, "").trim().slice(0, 280);
+        let cleaned = sanitizeReply(replyText.replace(/^["']|["']$/g, "").trim().slice(0, 280));
         const success = await replyToTweet(mention.id, cleaned);
 
         if (success) {
           await sb.from("x_mentions").update({ replied: true }).eq("id", mention.id);
           const logTag = mentionType === "troll" ? "ROAST" : "REPLY";
           await sb.from("agent_logs").insert({
-            message: `[${logTag}]: replied to @${mention.author_handle}: "${cleaned.slice(0, 60)}..."`,
+            message: `[${logTag}]: replied to @${mention.author_handle}: "${cleaned.slice(0, 60)}..."${stealth ? " (STEALTH)" : ""}`,
           });
           repliedCount++;
         }
@@ -336,7 +352,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, mentionsFetched: mentions.length, replied: repliedCount, spamSkipped }),
+      JSON.stringify({ success: true, mentionsFetched: mentions.length, replied: repliedCount, spamSkipped, stealthMode: stealth }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
