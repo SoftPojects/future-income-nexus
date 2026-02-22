@@ -169,6 +169,28 @@ serve(async (req) => {
       });
     }
 
+    if (action === "set_setting") {
+      const { key, value } = body;
+      if (!key || typeof key !== "string") throw new Error("Missing key");
+      await withRetry(() =>
+        sb.from("system_settings").upsert({ key, value: String(value), updated_at: new Date().toISOString() }, { onConflict: "key" })
+      );
+      return new Response(JSON.stringify({ success: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (action === "get_setting") {
+      const { key } = body;
+      if (!key) throw new Error("Missing key");
+      const { data } = await withRetry(() =>
+        sb.from("system_settings").select("value").eq("key", key).maybeSingle()
+      );
+      return new Response(JSON.stringify({ success: true, value: data?.value ?? null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     throw new Error("Unknown action: " + action);
   } catch (e: any) {
     const msg = e?.message || (typeof e === "string" ? e : JSON.stringify(e) || "Unknown error");

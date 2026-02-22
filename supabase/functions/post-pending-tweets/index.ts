@@ -259,10 +259,20 @@ async function postToTwitter(
 
 // Generate a plug reply using Lovable AI
 // ─── STEALTH RECOVERY MODE ───────────────────────────────────────────────────
-const STEALTH_MODE = true;
 const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
+let _stealthOverride: boolean | null = null;
+
+async function loadStealthSetting(sb: any): Promise<boolean> {
+  try {
+    const { data } = await sb.from("system_settings").select("value").eq("key", "stealth_mode").maybeSingle();
+    if (data?.value === "false") return false;
+    if (data?.value === "true") return new Date() < STEALTH_EXPIRY;
+    return new Date() < STEALTH_EXPIRY;
+  } catch { return new Date() < STEALTH_EXPIRY; }
+}
+
 function isStealthActive(): boolean {
-  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+  return _stealthOverride === true;
 }
 
 const PLUG_TEMPLATES = [
@@ -281,6 +291,7 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const sb = createClient(supabaseUrl, serviceKey);
+    _stealthOverride = await loadStealthSetting(sb);
 
   const now = new Date().toISOString();
 

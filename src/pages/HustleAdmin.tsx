@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, X, Download, RotateCcw, Play, Pause, Image as ImageIcon, Volume2, Video, TrendingUp, Radio, ExternalLink, BarChart2, MessageSquare } from "lucide-react";
+import { Shield, Send, RefreshCw, Trash2, Edit2, Zap, Twitter, Clock, CheckCircle, AlertCircle, Power, Crosshair, Plus, Lightbulb, Copy, ArrowRight, ChevronDown, ChevronUp, Loader2, Activity, Eye, Film, X, Download, RotateCcw, Play, Pause, Image as ImageIcon, Volume2, Video, TrendingUp, Radio, ExternalLink, BarChart2, MessageSquare, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -230,6 +230,27 @@ const HustleAdmin = () => {
   const [snipeLastResult, setSnipeLastResult] = useState<any | null>(null);
   const [sniperMode, setSniperMode] = useState(true);
   const [sniperModeLoading, setSniperModeLoading] = useState(false);
+  // Stealth Mode state
+  const [stealthMode, setStealthMode] = useState(true);
+  const [stealthLoading, setStealthLoading] = useState(false);
+  const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
+
+  // Stealth countdown
+  const [stealthTimeLeft, setStealthTimeLeft] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const diff = STEALTH_EXPIRY.getTime() - Date.now();
+      if (diff <= 0) { setStealthTimeLeft("EXPIRED"); return; }
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setStealthTimeLeft(`${d}d ${h}h ${m}m ${s}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
 
 
   const getAdminHeaders = () => {
@@ -369,6 +390,30 @@ const HustleAdmin = () => {
     }
   }, []);
 
+  const loadStealthMode = useCallback(async () => {
+    const { data } = await supabase.from("system_settings").select("value").eq("key", "stealth_mode").maybeSingle();
+    if (data?.value === "false") setStealthMode(false);
+    else setStealthMode(true);
+  }, []);
+
+  const handleStealthToggle = async (enabled: boolean) => {
+    setStealthLoading(true);
+    try {
+      await supabase.functions.invoke("manage-agent", {
+        body: { action: "set_setting", key: "stealth_mode", value: enabled ? "true" : "false", admin_token: getAdminToken() },
+      });
+      setStealthMode(enabled);
+      toast({
+        title: enabled ? "🛡️ STEALTH MODE ACTIVATED" : "⚡ STEALTH MODE DEACTIVATED",
+        description: enabled ? "All promotion disabled. Pure analyst mode." : "Normal operations restored. Promotion re-enabled.",
+      });
+    } catch (e) {
+      toast({ title: "Toggle failed", description: String(e), variant: "destructive" });
+    } finally {
+      setStealthLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (authenticated) {
       fetchTweets();
@@ -384,6 +429,7 @@ const HustleAdmin = () => {
       loadTokenOverride();
       fetchGeckoFeed();
       fetchTrendCommentLogs();
+      loadStealthMode();
 
       // Realtime for media_assets + social_logs + daily quota + vip_reply_logs + trend_comment_logs
       const channel = supabase
@@ -393,10 +439,11 @@ const HustleAdmin = () => {
         .on("postgres_changes", { event: "*", schema: "public", table: "daily_social_quota" }, () => fetchDailyQuota())
         .on("postgres_changes", { event: "*", schema: "public", table: "vip_reply_logs" }, () => { fetchVipReplyLogs(); fetchVipTargets(); })
         .on("postgres_changes", { event: "INSERT", schema: "public", table: "trend_comment_logs" }, () => fetchTrendCommentLogs())
+        .on("postgres_changes", { event: "*", schema: "public", table: "system_settings" }, () => loadStealthMode())
         .subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs, loadTokenOverride, fetchGeckoFeed, fetchTrendCommentLogs]);
+  }, [authenticated, fetchTweets, fetchMediaAssets, fetchMentions, fetchTargets, fetchSocialLogs, fetchNextTargets, fetchExecCount, fetchDailyQuota, fetchVipTargets, fetchVipReplyLogs, loadTokenOverride, fetchGeckoFeed, fetchTrendCommentLogs, loadStealthMode]);
 
   // ─── VIP SNIPER HANDLERS ───
   const handleFlashSnipe = async (dryRun = false, targetHandle?: string) => {
@@ -1030,6 +1077,45 @@ const HustleAdmin = () => {
               </div>
             )}
             <Switch checked={autopilot} onCheckedChange={setAutopilot} />
+          </div>
+        </motion.div>
+
+        {/* Stealth Mode Banner */}
+        <motion.div 
+          className={`rounded-lg p-4 border flex items-center justify-between ${stealthMode ? "bg-destructive/5 border-destructive/40" : "bg-muted/50 border-border"}`} 
+          initial={{ opacity: 0, y: -10 }} 
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <div className="flex items-center gap-3">
+            <ShieldAlert className={`w-5 h-5 ${stealthMode ? "text-destructive animate-pulse" : "text-muted-foreground"}`} />
+            <div>
+              <h3 className="font-display text-sm tracking-widest text-foreground flex items-center gap-2">
+                STEALTH RECOVERY MODE
+                {stealthMode && <Badge variant="destructive" className="text-[9px] px-1.5 py-0">ACTIVE</Badge>}
+              </h3>
+              <p className="text-[10px] font-mono text-muted-foreground">
+                {stealthMode 
+                  ? "Zero promotion • Pure analyst • 6 posts/day • No auto-follow • No VIP snipe • No trend comments"
+                  : "Stealth mode OFF — normal operations with promotion enabled"
+                }
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            {stealthMode && (
+              <div className="text-right">
+                <p className="text-[10px] font-mono text-muted-foreground tracking-widest">EXPIRES IN</p>
+                <p className={`font-mono text-sm font-bold ${stealthTimeLeft === "EXPIRED" ? "text-neon-green" : "text-destructive"}`}>
+                  {stealthTimeLeft}
+                </p>
+              </div>
+            )}
+            <Switch 
+              checked={stealthMode} 
+              onCheckedChange={handleStealthToggle} 
+              disabled={stealthLoading}
+            />
           </div>
         </motion.div>
 

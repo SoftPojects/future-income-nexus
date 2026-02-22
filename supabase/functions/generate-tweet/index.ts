@@ -11,13 +11,26 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL_PREMIUM = "anthropic/claude-3.5-sonnet";
 const MODEL_FREE = "google/gemini-2.5-flash";
 
-// ─── STEALTH RECOVERY MODE (activated 2026-02-22, 10-day window) ──────────────
-// Remove this block after ~2026-03-04 to restore normal operations
-const STEALTH_MODE = true;
+// ─── STEALTH RECOVERY MODE ──────────────────────────────────────────────────
 const STEALTH_EXPIRY = new Date("2026-03-04T00:00:00Z");
 
+// Will be resolved per-request from system_settings
+let _stealthOverride: boolean | null = null;
+
+async function loadStealthSetting(sb: any): Promise<boolean> {
+  try {
+    const { data } = await sb.from("system_settings").select("value").eq("key", "stealth_mode").maybeSingle();
+    if (data?.value === "false") return false;
+    if (data?.value === "true") return new Date() < STEALTH_EXPIRY;
+    // Default: true if before expiry
+    return new Date() < STEALTH_EXPIRY;
+  } catch {
+    return new Date() < STEALTH_EXPIRY;
+  }
+}
+
 function isStealthActive(): boolean {
-  return STEALTH_MODE && new Date() < STEALTH_EXPIRY;
+  return _stealthOverride === true;
 }
 
 // ─── STEALTH PERSONA: Pure Market Analyst ─────────────────────────────────────
@@ -303,7 +316,7 @@ serve(async (req) => {
     const isThreadMode = body?.mode === "thread";
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-
+    _stealthOverride = await loadStealthSetting(sb);
     const { data: agentState } = await sb.from("agent_state").select("total_hustled, energy_level").limit(1).single();
     const balance = agentState?.total_hustled ?? 0;
     const energy = agentState?.energy_level ?? 50;
