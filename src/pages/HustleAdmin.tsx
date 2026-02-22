@@ -1120,24 +1120,26 @@ const HustleAdmin = () => {
         </motion.div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="bg-muted border border-border flex-wrap">
-            <TabsTrigger value="queue">Tweet Queue</TabsTrigger>
-            <TabsTrigger value="manual">Manual Post</TabsTrigger>
-            <TabsTrigger value="hunter"><Crosshair className="w-3 h-3 mr-1" /> Hunter</TabsTrigger>
-            <TabsTrigger value="social"><Activity className="w-3 h-3 mr-1" /> Social Activity</TabsTrigger>
-            <TabsTrigger value="watchdog"><Radio className="w-3 h-3 mr-1" /> Watchdog</TabsTrigger>
-            <TabsTrigger value="growth" className="text-neon-green data-[state=active]:text-neon-green">
-              <BarChart2 className="w-3 h-3 mr-1" /> Growth Engine
-            </TabsTrigger>
-            <TabsTrigger value="snipe" className="text-neon-magenta data-[state=active]:text-neon-magenta">
-              <Zap className="w-3 h-3 mr-1" /> Flash Snipe
-            </TabsTrigger>
-            <TabsTrigger value="mentions">Mentions</TabsTrigger>
-            <TabsTrigger value="status">System</TabsTrigger>
-            <TabsTrigger value="token-override" className="text-yellow-400 data-[state=active]:text-yellow-400">
-              <TrendingUp className="w-3 h-3 mr-1" /> Token Override
-            </TabsTrigger>
-          </TabsList>
+          <div className="overflow-x-auto -mx-1 px-1 pb-1">
+            <TabsList className="bg-muted border border-border inline-flex w-auto min-w-full whitespace-nowrap gap-0.5 p-1">
+              <TabsTrigger value="queue" className="text-xs px-3">Tweet Queue</TabsTrigger>
+              <TabsTrigger value="manual" className="text-xs px-3">Manual Post</TabsTrigger>
+              <TabsTrigger value="hunter" className="text-xs px-3"><Crosshair className="w-3 h-3 mr-1" /> Hunter</TabsTrigger>
+              <TabsTrigger value="social" className="text-xs px-3"><Activity className="w-3 h-3 mr-1" /> Social</TabsTrigger>
+              <TabsTrigger value="watchdog" className="text-xs px-3"><Radio className="w-3 h-3 mr-1" /> Watchdog</TabsTrigger>
+              <TabsTrigger value="growth" className="text-xs px-3 text-neon-green data-[state=active]:text-neon-green">
+                <BarChart2 className="w-3 h-3 mr-1" /> Growth
+              </TabsTrigger>
+              <TabsTrigger value="snipe" className="text-xs px-3 text-neon-magenta data-[state=active]:text-neon-magenta">
+                <Zap className="w-3 h-3 mr-1" /> Snipe
+              </TabsTrigger>
+              <TabsTrigger value="mentions" className="text-xs px-3">Mentions</TabsTrigger>
+              <TabsTrigger value="status" className="text-xs px-3">System</TabsTrigger>
+              <TabsTrigger value="token-override" className="text-xs px-3 text-yellow-400 data-[state=active]:text-yellow-400">
+                <TrendingUp className="w-3 h-3 mr-1" /> Token
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
           {/* TWEET QUEUE TAB */}
           <TabsContent value="queue" className="space-y-4">
